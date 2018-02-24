@@ -1,0 +1,51 @@
+{
+    "name": "vscode-bazel-tools",
+    "displayName": "Bazel Tools",
+    "description": "Helper for building and developing bazel targets",
+    "version": "0.0.1",
+    "publisher": "Dirk Mueller",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/dprogm/vscode-bazel-tools.git"
+    },
+    "license": "MIT",
+    "engines": {
+        "vscode": "^1.20.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onCommand:extension.buildTarget",
+        "onCommand:extension.createCppProps"
+    ],
+    "main": "./extension",
+    "contributes": {
+        "commands": [
+            {
+                "command": "extension.buildTarget",
+                "title": "Bazel Build Target"
+            },
+            {
+                "command": "extension.createCppProps",
+                "title": "Bazel Create C++ Properties"
+            }
+        ]
+    },
+    "scripts": {
+        "postinstall": "node ./node_modules/vscode/bin/install",
+        "test": "node ./node_modules/vscode/bin/test"
+    },
+    "devDependencies": {
+        "typescript": "^2.6.1",
+        "vscode": "^1.1.6",
+        "eslint": "^4.11.0",
+        "@types/node": "^7.0.43",
+        "@types/mocha": "^2.2.42"
+    },
+    "dependencies": {
+        "child-process-async": "^1.0.1",
+        "fs-extra": "^5.0.0",
+        "node-exec-promise": "^1.0.2"
+    }
+}
