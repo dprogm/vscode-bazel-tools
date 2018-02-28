@@ -1,21 +1,25 @@
-SrcFiles = provider(fields = ["transitive_sources"])
+def _vs_code_bazel_inspect_impl(target, ctx):
+    rule_data = None
+    rule_kind = ctx.rule.kind
+    if rule_kind == 'cc_library' or rule_kind == 'cc_binary' or rule_kind == 'boost_library':
+        rule_data = struct(
+            includes = target.cc.include_directories 
+                + target.cc.quote_include_directories 
+                + target.cc.system_include_directories 
+        )
+    
+    target_descriptor_file = ctx.actions.declare_file(
+        'vs_code_bazel_descriptor_%s.json' % target.label.name)
+    data = struct(
+        kind = rule_kind,
+        data = rule_data
+    )
+    ctx.actions.write(target_descriptor_file, data.to_json())
+    return [OutputGroupInfo(descriptor_files = depset([target_descriptor_file], 
+        transitive = [dep[OutputGroupInfo].descriptor_files 
+            for dep in ctx.rule.attr.deps]))]
 
-def collect(srcs, deps):
-  for src in srcs:
-    print(src.files)
-  return depset(srcs,
-        transitive = [dep[SrcFiles].transitive_sources for dep in deps])
-
-def _cpp_deps_dbg_impl(target, ctx):
-    trans_srcs = []
-    kind = ctx.rule.kind
-    if kind == 'cc_library' or kind == 'cc_binary':
-        trans_srcs = collect(ctx.rule.attr.srcs, ctx.rule.attr.deps)
-    else:
-        print(kind + ' will not be considered')
-    return [SrcFiles(transitive_sources=trans_srcs)]
-
-cpp_deps_dbg = aspect(
-    implementation = _cpp_deps_dbg_impl,
-    attr_aspects = ["deps"],
+vs_code_bazel_inspect = aspect(
+    implementation = _vs_code_bazel_inspect_impl,
+    attr_aspects = ["deps"]
 )
