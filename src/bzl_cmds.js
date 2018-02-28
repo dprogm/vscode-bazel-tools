@@ -17,20 +17,15 @@ async function bzlHasWorkspace() {
     return false;
 }
 
-async function bzlQueryDeps() {
-    var deps = []
-    if(await bzlHasWorkspace()) {
-        var child = await child_proc.exec('"bazel" query ...', {
-            'cwd': Workspace.workspaceFolders[0].uri.fsPath
-        })
-        deps = child.stdout.split('\n')
-    }
-    return deps 
+async function bzlRunCommandFromShell(op_str) {
+    return child_proc.exec('"bazel" ' + op_str, {
+        'cwd': Workspace.workspaceFolders[0].uri.fsPath
+    })
 }
 
 // * Execute our bazel command
 // * Make the terminal visible to the user
-async function bzlRunCommand(ctx, cmd) {
+async function bzlRunCommandInTerminal(ctx, cmd) {
     var term = Window.createTerminal()
     term.sendText(cmd)
     term.show()
@@ -38,30 +33,37 @@ async function bzlRunCommand(ctx, cmd) {
     ctx.subscriptions.push(term)
 }
 
-async function bzlBuildTargetImpl(ctx, opts) {
+async function bzlQueryDeps() {
+    var deps = []
+    if(await bzlHasWorkspace()) {
+        var child = await bzlRunCommandFromShell('query ...')
+        deps = child.stdout.split('\n')
+    }
+    return deps 
+}
+
+async function bzlPickTarget() {
+    var target = ''
     try {
         var deps = await bzlQueryDeps()
         if(deps.length) {
-            var opt_str = ' '
-            if(opts.length) {
-                var sep = opt_str
-                opt_str = sep 
-                    + opts.join(sep) 
-                    + sep
-            }
-            bzlRunCommand(ctx, 'bazel build'
-                + opt_str
-                + await Window.showQuickPick(deps))
+            target = await Window.showQuickPick(deps)
         } else {
             Window.showErrorMessage('There are no targets available')
         }
     } catch(error) {
         Window.showErrorMessage(error.toString())
     }
+    return target
 }
 
 async function bzlBuildTarget(ctx) {
-    bzlBuildTargetImpl(ctx, [])
+    var target = await bzlPickTarget()
+
+    if((target != undefined) && (target != '')) {
+        bzlRunCommandInTerminal(ctx,
+        'bazel build ' + target)
+    }
 }
 
 // Extensions source folder that contains
@@ -110,16 +112,22 @@ async function bzlCreateCppProps(ctx) {
     if(await bzlHasWorkspace()) {
         var ws_root = Workspace.workspaceFolders[0].uri.fsPath
 
-        fs.exists(path.join(ws_root, BAZEL_BUILD_FILE), (exists) => {
+        fs.exists(path.join(ws_root, BAZEL_BUILD_FILE), async (exists) => {
             if(!exists) {
                 // TODO Setup our workspace directly
                 // after WORKSPACE has been detected.
-                bzlSetupWorkspace(ws_root, ctx.extensionPath)
+                await bzlSetupWorkspace(ws_root, ctx.extensionPath)
             }
-            bzlBuildTargetImpl(ctx, [
+            var opts = [
                 '--aspects=' + path.join(BAZEL_EXT_DEST_BASE_PATH,
-                    BAZEL_ASPECT_FILE) + '%cpp_deps_dbg'
-            ])
+                    BAZEL_ASPECT_FILE) + '%vs_code_bazel_inspect',
+                '--output_groups=descriptor_files'
+            ]
+            var target = await bzlPickTarget()
+            if((target != undefined) && (target != '')) {
+                bzlRunCommandFromShell(opts.join(' ') + target)
+            } else {
+            }
         })
     }
 }
