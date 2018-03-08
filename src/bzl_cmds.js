@@ -40,7 +40,7 @@ async function bzlQueryDeps() {
         var child = await bzlRunCommandFromShell('query ...')
         deps = child.stdout.split('\n')
     }
-    return deps 
+    return deps
 }
 
 async function bzlPickTarget() {
@@ -121,7 +121,7 @@ async function bzlFoundFiles(substr, root) {
                 if(files[i].search(substr) != -1) {
                     found_files.push(file_path)
                 }
-            }  
+            }
         }
     } catch(err) {
         console.log(err.toString())
@@ -136,59 +136,74 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
             var buf = await fs.readFile(descriptors[i])
             var descriptor = JSON.parse(buf)
             var bzl_rule_kind = descriptor.kind
-            if(bzl_rule_kind == 'cc_binary' 
-                || bzl_rule_kind == 'cc_library') {
+            if(bzl_rule_kind == 'cc_binary'
+                || bzl_rule_kind == 'cc_library'
+                || bzl_rule_kind == 'cc_toolchain') {
                 var includes = descriptor.data.includes
                 for(var j=0; j<includes.length; j++) {
+                    includes[j] = path.normalize(includes[j])
                     if(includes[j].split(path.sep)[0] != 'bazel-out') {
-                        include_paths.add(path.join(
-                            output_root_dir, includes[j]))
+                        var abs_inc_path = includes[j]
+                        if(bzl_rule_kind != 'cc_toolchain') {
+                            abs_inc_path = path.join(
+                            output_root_dir, abs_inc_path)
+                        }
+                        include_paths.add(abs_inc_path)
                     }
                 }
             }
         }
-        var cpp_props_file = path.join(ws_root_dir, 
-            '.vscode/c_cpp_properties.json')
+        var cpp_props_file = path.join(ws_root_dir,
+            '.vscode', 'c_cpp_properties.json')
         var cpp_props_available = await fs.exists(cpp_props_file)
+        var cpp_props_create_file = true
         if(cpp_props_available) {
             var options = vscode.InputBoxOptions = {
                 prompt: 'There is already a c_cpp_properties file in you workspace.'
                       + 'Can we overwrite it?',
             };
             var users_decision = await Window.showInputBox(options)
-            if(users_decision == 'y' || users_decision == 'yes') {
-                var buf = await fs.readFile(cpp_props_file)
-                var cpp_props_data = JSON.parse(buf)
-                var cpp_configs = cpp_props_data.configurations
-                for(var i=0; i<cpp_configs.length; i++) {
-                    include_paths.forEach((value) => {
-                        cpp_props_data.configurations[i].includePath.push(value)
-                        cpp_props_data.configurations[i].browse.path.push(value)
-                    })
-                }
-                await fs.writeFile(cpp_props_file, JSON.stringify(cpp_props_data, null, 4))
-                Window.showInformationMessage('Finished include path generation.')
+            if(users_decision != 'y' && users_decision != 'yes') {
+                cpp_props_create_file = false
             }
+        }
+        if(cpp_props_create_file) {
+            var path_arr = Array.from(include_paths)
+            var cpp_props_data = {
+                'configurations' : [{
+                        'name' : 'Win32',
+                        'intelliSenseMode' : 'msvc-x64',
+                        'includePath' : path_arr,
+                        'browse' : {
+                            'path' : path_arr,
+                            'limitSymbolsToIncludedHeaders' : true,
+                            'databaseFilename' : ''
+                        }
+                    }
+                ]
+            }
+            await fs.writeFile(cpp_props_file, JSON.stringify(cpp_props_data, null, 4))
+            Window.showInformationMessage('Finished include path generation.')
         }
     } catch(err) {
         console.log(err.toString())
     }
 }
 
-// * Let the user choose a root target from which we 
+// * Let the user choose a root target from which we
 //   are going to apply the aspect and gather all
 //   cxx include paths
 //
 // * Create the vs code file 'c_cpp_properties.json'
-//   into the destination folder and append the found 
-//   include paths to that file under the section 
+//   into the destination folder and append the found
+//   include paths to that file under the section
 //   'includePath'
 async function bzlCreateCppProps(ctx) {
     try {
         var has_workspace = await bzlHasWorkspace()
         if(has_workspace) {
             var ws_root = Workspace.workspaceFolders[0].uri.fsPath
-            var exists = fs.exists(path.join(ws_root, BAZEL_BUILD_FILE))
+            var exists = await fs.exists(path.join(ws_root, BAZEL_BUILD_FILE))
             if(!exists) {
                 // TODO Setup our workspace directly
                 // after WORKSPACE has been detected.
@@ -205,13 +220,13 @@ async function bzlCreateCppProps(ctx) {
             if((target != undefined) && (target != '')) {
                 cmd_args.push(target)
                 await bzlRunCommandFromShell(cmd_args.join(' '))
-    
+
                 // 1) Try to find all descriptor files the bazel
                 //    aspect might have generated into the output
                 //    directory 'bazel-bin'
                 var descriptors = await bzlFoundFiles('vs_code_bazel_descriptor',
                     path.join(ws_root, 'bazel-bin'))
-                
+
                 // 2) Build absolute include paths based on the
                 //    relative paths from the descriptors and
                 //    the symlinked bazel workspace 'bazel-<root>'
@@ -231,4 +246,4 @@ async function bzlCreateCppProps(ctx) {
 module.exports = {
     bzlBuildTarget : bzlBuildTarget,
     bzlCreateCppProps : bzlCreateCppProps
-} 
+}
