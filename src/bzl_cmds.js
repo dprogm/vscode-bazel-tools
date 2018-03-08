@@ -1,6 +1,7 @@
 const child_proc = require('child-process-async');
 const path = require('path')
 const fs = require('fs-extra')
+const os = require('os')
 const vscode = require('vscode')
 const Workspace = vscode.workspace
 const Window = vscode.window
@@ -129,6 +130,36 @@ async function bzlFoundFiles(substr, root) {
     return found_files
 }
 
+// TODO: Add OSX configuration
+function bzlGetBaseCppProperties() {
+    var cpp_props_config_name = ''
+    var cpp_props_config_intellisensemode = ''
+    switch(os.platform()) {
+        case 'linux':
+            cpp_props_config_name = 'Linux'
+            cpp_props_config_intellisensemode = 'clang-x64'
+        break;
+        case 'win32':
+            cpp_props_config_name = 'Win32'
+            cpp_props_config_intellisensemode = 'msvc-x64'
+        break;
+    }
+    var cpp_props_data = {
+        'configurations' : [{
+                'name' : cpp_props_config_name,
+                'intelliSenseMode' : cpp_props_config_intellisensemode,
+                'includePath' : [],
+                'browse' : {
+                    'path' : [],
+                    'limitSymbolsToIncludedHeaders' : true,
+                    'databaseFilename' : ''
+                }
+            }
+        ]
+    }
+    return cpp_props_data
+}
+
 async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors) {
     try {
         var include_paths = new Set()
@@ -159,8 +190,9 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
         var cpp_props_create_file = true
         if(cpp_props_available) {
             var options = vscode.InputBoxOptions = {
-                prompt: 'There is already a c_cpp_properties file in you workspace.'
-                      + 'Can we overwrite it?',
+                prompt: 'There is already a c_cpp_properties.json file in '
+                      + 'your workspace. Can we overwrite it?',
+                placeHolder : 'y/yes | n/no',
             };
             var users_decision = await Window.showInputBox(options)
             if(users_decision != 'y' && users_decision != 'yes') {
@@ -169,21 +201,13 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
         }
         if(cpp_props_create_file) {
             var path_arr = Array.from(include_paths)
-            var cpp_props_data = {
-                'configurations' : [{
-                        'name' : 'Win32',
-                        'intelliSenseMode' : 'msvc-x64',
-                        'includePath' : path_arr,
-                        'browse' : {
-                            'path' : path_arr,
-                            'limitSymbolsToIncludedHeaders' : true,
-                            'databaseFilename' : ''
-                        }
-                    }
-                ]
+            var cpp_props_data = bzlGetBaseCppProperties()
+            for(var i=0; i<cpp_props_data.configurations.length; i++) {
+                cpp_props_data.configurations[i].includePath = path_arr
+                cpp_props_data.configurations[i].browse.path = path_arr
             }
             await fs.writeFile(cpp_props_file, JSON.stringify(cpp_props_data, null, 4))
-            Window.showInformationMessage('Finished include path generation.')
+            Window.showInformationMessage('c_cpp_properties.json file has been successfully created')
         }
     } catch(err) {
         console.log(err.toString())
@@ -231,11 +255,15 @@ async function bzlCreateCppProps(ctx) {
                 //    relative paths from the descriptors and
                 //    the symlinked bazel workspace 'bazel-<root>'
                 //    where root is the current working directory.
-                bzlCreateCppProperties(
+                await bzlCreateCppProperties(
                     ws_root,
                     path.join(ws_root,
                     'bazel-' + path.basename(ws_root)),
                     descriptors)
+                // 3) Cleanup all temporary descriptor files
+                for(var i=0; i<descriptors.length; i++) {
+                    fs.unlink(descriptors[i])
+                }
             }
         }
     } catch(err) {
