@@ -17,8 +17,8 @@ async function bzlHasWorkspace() {
     return false;
 }
 
-async function bzlRunCommandFromShell(op_str) {
-    return child_proc.exec('"bazel" ' + op_str, {
+async function bzlRunCommandFromShell(cmd_args) {
+    return child_proc.exec('"bazel" ' + cmd_args, {
         'cwd': Workspace.workspaceFolders[0].uri.fsPath
     })
 }
@@ -35,7 +35,8 @@ async function bzlRunCommandInTerminal(ctx, cmd) {
 
 async function bzlQueryDeps() {
     var deps = []
-    if(await bzlHasWorkspace()) {
+    var has_workspace = await bzlHasWorkspace()
+    if(has_workspace) {
         var child = await bzlRunCommandFromShell('query ...')
         deps = child.stdout.split('\n')
     }
@@ -100,6 +101,80 @@ async function bzlSetupWorkspace(ws_root, ext_root) {
     }
 }
 
+// Find files by searching recursively beginning at
+// a given root directory. A filename matches if it
+// contains 'substr'
+async function bzlFoundFiles(substr, root) {
+    var found_files = []
+    try {
+        var files = await fs.readdir(root)
+        for(var i=0; i<files.length; i++) {
+            var file_path = path.join(root, files[i])
+            var stats = await fs.stat(file_path)
+            if(stats && stats.isDirectory()) {
+                var sub_dir_files = await bzlFoundFiles(substr, file_path)
+                for(var j=0; j<sub_dir_files.length; j++) {
+                    found_files.push(sub_dir_files[j])
+                }
+            }
+            else {
+                if(files[i].search(substr) != -1) {
+                    found_files.push(file_path)
+                }
+            }  
+        }
+    } catch(err) {
+        console.log(err.toString())
+    }
+    return found_files
+}
+
+async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors) {
+    try {
+        var include_paths = new Set()
+        for(var i=0; i<descriptors.length; i++) {
+            var buf = await fs.readFile(descriptors[i])
+            var descriptor = JSON.parse(buf)
+            var bzl_rule_kind = descriptor.kind
+            if(bzl_rule_kind == 'cc_binary' 
+                || bzl_rule_kind == 'cc_library') {
+                var includes = descriptor.data.includes
+                for(var j=0; j<includes.length; j++) {
+                    if(includes[j].split(path.sep)[0] != 'bazel-out') {
+                        include_paths.add(path.join(
+                            output_root_dir, includes[j]))
+                    }
+                }
+            }
+        }
+        var cpp_props_file = path.join(ws_root_dir, 
+            '.vscode/c_cpp_properties.json')
+        var cpp_props_available = await fs.exists(cpp_props_file)
+        if(cpp_props_available) {
+            var options = vscode.InputBoxOptions = {
+                prompt: 'There is already a c_cpp_properties file in you workspace.'
+                      + 'Can we overwrite it?',
+            };
+            var users_decision = await Window.showInputBox(options)
+            if(users_decision == 'y' || users_decision == 'yes') {
+                var buf = await fs.readFile(cpp_props_file)
+                var cpp_props_data = JSON.parse(buf)
+                var cpp_configs = cpp_props_data.configurations
+                for(var i=0; i<cpp_configs.length; i++) {
+                    include_paths.forEach((value) => {
+                        cpp_props_data.configurations[i].includePath.push(value)
+                        cpp_props_data.configurations[i].browse.path.push(value)
+                    })
+                }
+                await fs.writeFile(cpp_props_file, JSON.stringify(cpp_props_data, null, 4))
+                Window.showInformationMessage('Finished include path generation.')
+            }
+        }
+    } catch(err) {
+        console.log(err.toString())
+    }
+}
+
 // * Let the user choose a root target from which we 
 //   are going to apply the aspect and gather all
 //   cxx include paths
@@ -109,26 +184,47 @@ async function bzlSetupWorkspace(ws_root, ext_root) {
 //   include paths to that file under the section 
 //   'includePath'
 async function bzlCreateCppProps(ctx) {
-    if(await bzlHasWorkspace()) {
-        var ws_root = Workspace.workspaceFolders[0].uri.fsPath
-
-        fs.exists(path.join(ws_root, BAZEL_BUILD_FILE), async (exists) => {
+    try {
+        var has_workspace = await bzlHasWorkspace()
+        if(has_workspace) {
+            var ws_root = Workspace.workspaceFolders[0].uri.fsPath
+            var exists = fs.exists(path.join(ws_root, BAZEL_BUILD_FILE))
             if(!exists) {
                 // TODO Setup our workspace directly
                 // after WORKSPACE has been detected.
                 await bzlSetupWorkspace(ws_root, ctx.extensionPath)
             }
-            var opts = [
-                '--aspects=' + path.join(BAZEL_EXT_DEST_BASE_PATH,
-                    BAZEL_ASPECT_FILE) + '%vs_code_bazel_inspect',
+            var cmd_args = [
+                'build',
+                '--aspects',
+                path.join(BAZEL_EXT_DEST_BASE_PATH, BAZEL_ASPECT_FILE)
+                    + '%vs_code_bazel_inspect',
                 '--output_groups=descriptor_files'
             ]
             var target = await bzlPickTarget()
             if((target != undefined) && (target != '')) {
-                bzlRunCommandFromShell(opts.join(' ') + target)
-            } else {
+                cmd_args.push(target)
+                await bzlRunCommandFromShell(cmd_args.join(' '))
+    
+                // 1) Try to find all descriptor files the bazel
+                //    aspect might have generated into the output
+                //    directory 'bazel-bin'
+                var descriptors = await bzlFoundFiles('vs_code_bazel_descriptor',
+                    path.join(ws_root, 'bazel-bin'))
+                
+                // 2) Build absolute include paths based on the
+                //    relative paths from the descriptors and
+                //    the symlinked bazel workspace 'bazel-<root>'
+                //    where root is the current working directory.
+                bzlCreateCppProperties(
+                    ws_root,
+                    path.join(ws_root,
+                    'bazel-' + path.basename(ws_root)),
+                    descriptors)
             }
-        })
+        }
+    } catch(err) {
+        console.log(err.toString())
     }
 }
 
