@@ -49,6 +49,10 @@ async function bzlPickTarget() {
     try {
         var deps = await bzlQueryDeps()
         if(deps.length) {
+            deps = deps.filter((val) => {
+                return val != undefined
+                    && val != ''
+            })
             target = await Window.showQuickPick(deps)
         } else {
             Window.showErrorMessage('There are no targets available')
@@ -61,10 +65,17 @@ async function bzlPickTarget() {
 
 async function bzlBuildTarget(ctx) {
     var target = await bzlPickTarget()
-
     if((target != undefined) && (target != '')) {
         bzlRunCommandInTerminal(ctx,
         'bazel build ' + target)
+    }
+}
+
+async function bzlRunTarget(ctx) {
+    var target = await bzlPickTarget()
+    if((target != undefined) && (target != '')) {
+        bzlRunCommandInTerminal(ctx,
+        'bazel run ' + target)
     }
 }
 
@@ -155,7 +166,8 @@ function bzlGetBaseCppProperties() {
                     'databaseFilename' : ''
                 }
             }
-        ]
+        ],
+        'version' : 3
     }
     return cpp_props_data
 }
@@ -273,5 +285,6 @@ async function bzlCreateCppProps(ctx) {
 
 module.exports = {
     bzlBuildTarget : bzlBuildTarget,
+    bzlRunTarget : bzlRunTarget,
     bzlCreateCppProps : bzlCreateCppProps
 }

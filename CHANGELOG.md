@@ -1,4 +1,5 @@
 # Change Log
 
-## [Unreleased]
-- Initial release
+### Version 0.0.1
+
+- Preview release (experimental)

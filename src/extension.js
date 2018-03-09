@@ -1,15 +1,18 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 const vscode = require('vscode');
-const bzl = require('./src/bzl_cmds')
+const bzl = require('./bzl_cmds')
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 function activate(context) {
-    context.subscriptions.push(vscode.commands.registerCommand('extension.buildTarget', function () {
+    context.subscriptions.push(vscode.commands.registerCommand('bazel.buildTarget', function () {
         bzl.bzlBuildTarget(context)
     }));
-    context.subscriptions.push(vscode.commands.registerCommand('extension.createCppProps', function () {
+    context.subscriptions.push(vscode.commands.registerCommand('bazel.runTarget', function () {
+        bzl.bzlRunTarget(context)
+    }));
+    context.subscriptions.push(vscode.commands.registerCommand('bazel.createCppProps', function () {
         bzl.bzlCreateCppProps(context)
     }));
 }
