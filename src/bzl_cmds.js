@@ -129,8 +129,8 @@ async function bzlPickTarget(rule_kinds = []) {
                     var dec_label = bzlDecomposeLabel(label_desc[i].label)
                     var user_friendly_label = bzlTranslateRuleKindToLanguage(
                         label_desc[i].kind)
-                        + ' - ' + dec_label.pkg
-                        + ' - ' + dec_label.target
+                        + ' | pkg[' + dec_label.pkg + ']'
+                        + ' | ' + dec_label.target
                     user_friendly_labels.push(user_friendly_label)
                     label_target_map[user_friendly_label] = label_desc[i].label
                 }
