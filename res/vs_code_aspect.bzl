@@ -14,7 +14,7 @@ def _vs_code_bazel_inspect_impl(target, ctx):
         trans_descriptor_files.append(
             ctx.rule.attr._cc_toolchain[OutputGroupInfo].descriptor_files)
 
-    elif rule_kind == 'cc_toolchain':
+    elif rule_kind == 'cc_toolchain' or rule_kind == 'apple_cc_toolchain':
         rule_data = struct(
             includes = ctx.fragments.cpp.built_in_include_directories
         )

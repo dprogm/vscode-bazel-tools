@@ -26,7 +26,7 @@ Bazel integration for Visual Studio Code. If you also want to have syntax highli
 - [x] Check the usage on other platforms than linux.
 - [ ] Implement test cases.
 - [ ] Add more language support. Currently the focus is on C++. Building targets is language independent.
-- [ ] Add language information for each target chosen from the target picker.
+- [x] Add language information for each target chosen from the target picker.
 - [ ] Consider the visibility of each target
 - [ ] Dive deeper into JS and develop a solid extension architecture.
 

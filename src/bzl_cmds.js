@@ -43,11 +43,11 @@ async function bzlQueryDeps() {
         var deps = child.stdout.split('\n')
         for(var i=0; i<deps.length; i++) {
             if(deps[i] != undefined && deps[i]) {
-                var sep = 'rule'
+                var sep = ' rule '
                 var idx = deps[i].search(sep)
                 if(idx != -1) {
                     var rule_kind = deps[i].substr(0, idx)
-                    var target_label = deps[i].substr(idx+sep.length+1)
+                    var target_label = deps[i].substr(idx+sep.length)
                     label_desc.push({
                         'kind' : rule_kind,
                         'label' : target_label
@@ -96,14 +96,16 @@ function bzlDecomposeLabel(label) {
     var pkg_root = '//'
     var target_idx = label.search(':')
     return {
-        'pkg' : label.substr(pkg_root.length, 
+        'pkg' : label.substr(pkg_root.length,
             target_idx-pkg_root.length),
         'target' : label.substr(target_idx+1,
             label.length-target_idx)
     }
 }
 
-async function bzlPickTarget() {
+// If 'rule_kinds' are not empty then excludes extends
+// to all target kinds except that of 'rule_kinds'.
+async function bzlPickTarget(rule_kinds = []) {
     var target = ''
     try {
         var label_desc = await bzlQueryDeps()
@@ -111,8 +113,19 @@ async function bzlPickTarget() {
             var user_friendly_labels = []
             var label_target_map = new Map()
             for(var i=0; i<label_desc.length; i++) {
-                var bzl_config = vscode.workspace.getConfiguration('bazel')
-                if(!bzl_config.targetExcludes.includes(label_desc[i].kind.trim())) {
+                var trimmed_label = label_desc[i].kind.trim()
+                var should_add_target = false
+                if(rule_kinds.length) {
+                    if(rule_kinds.includes(trimmed_label)) {
+                        should_add_target = true
+                    }
+                } else {
+                    var bzl_config = vscode.workspace.getConfiguration('bazel')
+                    if(!bzl_config.targetExcludes.includes(trimmed_label)) {
+                        should_add_target = true
+                    }
+                }
+                if(should_add_target) {
                     var dec_label = bzlDecomposeLabel(label_desc[i].label)
                     var user_friendly_label = bzlTranslateRuleKindToLanguage(
                         label_desc[i].kind)
@@ -211,7 +224,6 @@ async function bzlFindFiles(substr, root) {
     return found_files
 }
 
-// TODO: Add OSX configuration
 function bzlGetBaseCppProperties() {
     var cpp_props_config_name = ''
     var cpp_props_config_intellisensemode = ''
@@ -220,12 +232,16 @@ function bzlGetBaseCppProperties() {
             cpp_props_config_name = 'Linux'
             cpp_props_config_intellisensemode = 'clang-x64'
         break;
+        case 'darwin':
+            cpp_props_config_name = 'Mac'
+            cpp_props_config_intellisensemode = 'clang-x64'
+        break;
         case 'win32':
             cpp_props_config_name = 'Win32'
             cpp_props_config_intellisensemode = 'msvc-x64'
         break;
     }
-    var cpp_props_data = {
+    return {
         'configurations' : [{
                 'name' : cpp_props_config_name,
                 'intelliSenseMode' : cpp_props_config_intellisensemode,
@@ -239,7 +255,6 @@ function bzlGetBaseCppProperties() {
         ],
         'version' : 3
     }
-    return cpp_props_data
 }
 
 async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors) {
@@ -251,13 +266,15 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
             var bzl_rule_kind = descriptor.kind
             if(bzl_rule_kind == 'cc_binary'
                 || bzl_rule_kind == 'cc_library'
-                || bzl_rule_kind == 'cc_toolchain') {
+                || bzl_rule_kind == 'cc_toolchain'
+                || bzl_rule_kind == 'apple_cc_toolchain') {
                 var includes = descriptor.data.includes
                 for(var j=0; j<includes.length; j++) {
                     includes[j] = path.normalize(includes[j])
                     if(includes[j].split(path.sep)[0] != 'bazel-out') {
                         var abs_inc_path = includes[j]
-                        if(bzl_rule_kind != 'cc_toolchain') {
+                        if(bzl_rule_kind != 'cc_toolchain'
+                            && bzl_rule_kind != 'apple_cc_toolchain') {
                             abs_inc_path = path.join(
                             output_root_dir, abs_inc_path)
                         }
@@ -309,7 +326,8 @@ async function bzlCreateCppProps(ctx) {
         var has_workspace = await bzlHasWorkspace()
         if(has_workspace) {
             var ws_root = Workspace.workspaceFolders[0].uri.fsPath
-            var exists = await fs.exists(path.join(ws_root, BAZEL_BUILD_FILE))
+            var exists = await fs.exists(path.join(ws_root,
+                BAZEL_EXT_DEST_BASE_PATH, BAZEL_BUILD_FILE))
             if(!exists) {
                 // TODO Setup our workspace directly
                 // after WORKSPACE has been detected.
@@ -322,7 +340,13 @@ async function bzlCreateCppProps(ctx) {
                     + '%vs_code_bazel_inspect',
                 '--output_groups=descriptor_files'
             ]
-            var target = await bzlPickTarget()
+
+            // For c_cpp_properties we are only
+            // interested in C++ targets.
+            var target = await bzlPickTarget([
+                'cc_library',
+                'cc_binary'
+            ])
             if((target != undefined) && (target != '')) {
                 cmd_args.push(target)
                 await bzlRunCommandFromShell(cmd_args.join(' '))

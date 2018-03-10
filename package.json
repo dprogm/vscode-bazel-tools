@@ -41,14 +41,16 @@
             }
         ],
         "configuration": {
-            "type" : "object",
+            "type": "object",
             "title": "Bazel Tools Configuration",
             "properties": {
                 "bazel.targetExcludes": {
                     "type": "array",
-                    "default": ["filegroup"],
+                    "default": [
+                        "filegroup"
+                    ],
                     "description": "Target excludes that should not be considered during querying"
-                } 
+                }
             }
         }
     },
