@@ -39,7 +39,18 @@
                 "title": "Create C++ Properties",
                 "category": "Bazel"
             }
-        ]
+        ],
+        "configuration": {
+            "type" : "object",
+            "title": "Bazel Tools Configuration",
+            "properties": {
+                "bazel.targetExcludes": {
+                    "type": "array",
+                    "default": ["filegroup"],
+                    "description": "Target excludes that should not be considered during querying"
+                } 
+            }
+        }
     },
     "scripts": {
         "postinstall": "node ./node_modules/vscode/bin/install",

@@ -35,25 +35,95 @@ async function bzlRunCommandInTerminal(ctx, cmd) {
 }
 
 async function bzlQueryDeps() {
-    var deps = []
+    var label_desc = []
     var has_workspace = await bzlHasWorkspace()
     if(has_workspace) {
-        var child = await bzlRunCommandFromShell('query ...')
-        deps = child.stdout.split('\n')
+        var child = await bzlRunCommandFromShell('query ... '
+            + '--output label_kind')
+        var deps = child.stdout.split('\n')
+        for(var i=0; i<deps.length; i++) {
+            if(deps[i] != undefined && deps[i]) {
+                var sep = 'rule'
+                var idx = deps[i].search(sep)
+                if(idx != -1) {
+                    var rule_kind = deps[i].substr(0, idx)
+                    var target_label = deps[i].substr(idx+sep.length+1)
+                    label_desc.push({
+                        'kind' : rule_kind,
+                        'label' : target_label
+                    })
+                }
+            }
+        }
     }
-    return deps
+    return label_desc
+}
+
+function bzlTranslateRuleKindToLanguage(rule_kind) {
+    rule_kind = rule_kind.trim()
+    var lang = rule_kind
+    switch(rule_kind) {
+        case 'cc_library':
+        case 'cc_import':
+        case 'cc_binary':
+        case 'cc_test':
+            lang = 'C++'
+        break;
+        case 'cc_toolchain_suite':
+        case 'cc_toolchain':
+            lang = 'C++ Tools'
+        break;
+        case 'py_binary':
+        case 'py_library':
+        case 'py_test':
+        case 'py_runtime':
+            lang = 'Python'
+        break;
+        case 'java_library':
+        case 'jave_import':
+        case 'java_binary':
+        case 'java_test':
+            lang = 'Java'
+        break;
+        case 'filegroup':
+            lang = 'Filegroup'
+        break;
+    }
+    return lang
+}
+
+function bzlDecomposeLabel(label) {
+    var pkg_root = '//'
+    var target_idx = label.search(':')
+    return {
+        'pkg' : label.substr(pkg_root.length, 
+            target_idx-pkg_root.length),
+        'target' : label.substr(target_idx+1,
+            label.length-target_idx)
+    }
 }
 
 async function bzlPickTarget() {
     var target = ''
     try {
-        var deps = await bzlQueryDeps()
-        if(deps.length) {
-            deps = deps.filter((val) => {
-                return val != undefined
-                    && val != ''
-            })
-            target = await Window.showQuickPick(deps)
+        var label_desc = await bzlQueryDeps()
+        if(label_desc.length) {
+            var user_friendly_labels = []
+            var label_target_map = new Map()
+            for(var i=0; i<label_desc.length; i++) {
+                var bzl_config = vscode.workspace.getConfiguration('bazel')
+                if(!bzl_config.targetExcludes.includes(label_desc[i].kind.trim())) {
+                    var dec_label = bzlDecomposeLabel(label_desc[i].label)
+                    var user_friendly_label = bzlTranslateRuleKindToLanguage(
+                        label_desc[i].kind)
+                        + ' - ' + dec_label.pkg
+                        + ' - ' + dec_label.target
+                    user_friendly_labels.push(user_friendly_label)
+                    label_target_map[user_friendly_label] = label_desc[i].label
+                }
+            }
+            var chosen_label = await Window.showQuickPick(user_friendly_labels)
+            target = label_target_map[chosen_label]
         } else {
             Window.showErrorMessage('There are no targets available')
         }
@@ -116,7 +186,7 @@ async function bzlSetupWorkspace(ws_root, ext_root) {
 // Find files by searching recursively beginning at
 // a given root directory. A filename matches if it
 // contains 'substr'
-async function bzlFoundFiles(substr, root) {
+async function bzlFindFiles(substr, root) {
     var found_files = []
     try {
         var files = await fs.readdir(root)
@@ -124,7 +194,7 @@ async function bzlFoundFiles(substr, root) {
             var file_path = path.join(root, files[i])
             var stats = await fs.stat(file_path)
             if(stats && stats.isDirectory()) {
-                var sub_dir_files = await bzlFoundFiles(substr, file_path)
+                var sub_dir_files = await bzlFindFiles(substr, file_path)
                 for(var j=0; j<sub_dir_files.length; j++) {
                     found_files.push(sub_dir_files[j])
                 }
@@ -260,7 +330,7 @@ async function bzlCreateCppProps(ctx) {
                 // 1) Try to find all descriptor files the bazel
                 //    aspect might have generated into the output
                 //    directory 'bazel-bin'
-                var descriptors = await bzlFoundFiles('vs_code_bazel_descriptor',
+                var descriptors = await bzlFindFiles('vs_code_bazel_descriptor',
                     path.join(ws_root, 'bazel-bin'))
 
                 // 2) Build absolute include paths based on the
