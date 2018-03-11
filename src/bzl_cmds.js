@@ -1,45 +1,20 @@
-const child_proc = require('child-process-async');
-const path = require('path')
-const fs = require('fs-extra')
-const os = require('os')
+const bzl_defines = require('./bzl_defines')
+const bzl_utils = require('./bzl_utils')
 const vscode = require('vscode')
+const fs = require('fs-extra')
+const path = require('path')
 const Workspace = vscode.workspace
 const Window = vscode.window
 
-async function bzlHasWorkspace() {
-    try {
-        var uris = await Workspace.findFiles('WORKSPACE')
-        if(uris.length) {
-            return true
-        }
-    } catch(error) {
-        Window.showErrorMessage(error.toString())
-    }
-    return false;
-}
-
-async function bzlRunCommandFromShell(cmd_args) {
-    return child_proc.exec('"bazel" ' + cmd_args, {
-        'cwd': Workspace.workspaceFolders[0].uri.fsPath
-    })
-}
-
-// * Execute our bazel command
-// * Make the terminal visible to the user
-async function bzlRunCommandInTerminal(ctx, cmd) {
-    var term = Window.createTerminal()
-    term.sendText(cmd)
-    term.show()
-    // For disposal on deactivation
-    ctx.subscriptions.push(term)
-}
-
 async function bzlQueryDeps() {
     var label_desc = []
-    var has_workspace = await bzlHasWorkspace()
+    var has_workspace = await bzl_utils.bzlHasWorkspace()
+    var bzl_config = Workspace.getConfiguration('bazel')
+    var excluded_packages = bzl_config.packageExcludes.join(',')
     if(has_workspace) {
-        var child = await bzlRunCommandFromShell('query ... '
-            + '--output label_kind')
+        var child = await bzl_utils.bzlRunCommandFromShell('query ...'
+            + ' --deleted_packages=' + excluded_packages
+            + ' --output label_kind')
         var deps = child.stdout.split('\n')
         for(var i=0; i<deps.length; i++) {
             if(deps[i] != undefined && deps[i]) {
@@ -59,39 +34,8 @@ async function bzlQueryDeps() {
     return label_desc
 }
 
-function bzlTranslateRuleKindToLanguage(rule_kind) {
-    rule_kind = rule_kind.trim()
-    var lang = rule_kind
-    switch(rule_kind) {
-        case 'cc_library':
-        case 'cc_import':
-        case 'cc_binary':
-        case 'cc_test':
-            lang = 'C++'
-        break;
-        case 'cc_toolchain_suite':
-        case 'cc_toolchain':
-            lang = 'C++ Tools'
-        break;
-        case 'py_binary':
-        case 'py_library':
-        case 'py_test':
-        case 'py_runtime':
-            lang = 'Python'
-        break;
-        case 'java_library':
-        case 'jave_import':
-        case 'java_binary':
-        case 'java_test':
-            lang = 'Java'
-        break;
-        case 'filegroup':
-            lang = 'Filegroup'
-        break;
-    }
-    return lang
-}
-
+// Split the bazel label into its atomic parts:
+// package and target (name) 
 function bzlDecomposeLabel(label) {
     var pkg_root = '//'
     var target_idx = label.search(':')
@@ -103,6 +47,49 @@ function bzlDecomposeLabel(label) {
     }
 }
 
+function bzlBuildLabelList(label_desc) {
+    var bzl_config = vscode.workspace.getConfiguration('bazel')
+    var table_view_enabled = bzl_config.enableTableView
+    var label_parts = []
+    var max_widths = []
+    for(var i=0; i<label_desc.length; i++) {
+        var dec_label = bzlDecomposeLabel(label_desc[i].label)
+        label_parts.push({
+            'lang' : bzl_defines.bzlTranslateRuleKindToLanguage(
+                label_desc[i].kind),
+            'pkg' : dec_label.pkg,
+            'target' : dec_label.target
+        })
+        if(table_view_enabled) {
+            Object.keys(label_parts[i]).forEach((str,idx) => {
+                var prop_val = Object.values(label_parts[i])[idx]
+                if(max_widths.length < (idx+1)) {
+                    max_widths.push(prop_val.length)
+                } else if(prop_val.length > max_widths[idx]) {
+                    max_widths[idx] = prop_val.length
+                }
+            })
+        }
+    }
+    var label_map = new Map()
+    for(var i=0; i<label_parts.length; i++) {
+        if(table_view_enabled) {
+            for(var j=0; j<max_widths.length; j++) {
+                var obj_keys = Object.keys(label_parts[i])
+                if(label_parts[i][obj_keys[j]].length < max_widths[j]) {
+                    label_parts[i][obj_keys[j]] = label_parts[i][obj_keys[j]] + new Array(
+                        max_widths[j]-label_parts[i][obj_keys[j]].length+1).join('.')
+                }
+            }
+        }
+        var list_entry = label_parts[i].lang
+            + ' | ' + label_parts[i].pkg
+            + ' | ' + label_parts[i].target
+        label_map.set(list_entry, label_desc[i].label)
+    }
+    return label_map
+}
+
 // If 'rule_kinds' are not empty then excludes extends
 // to all target kinds except that of 'rule_kinds'.
 async function bzlPickTarget(rule_kinds = []) {
@@ -110,33 +97,25 @@ async function bzlPickTarget(rule_kinds = []) {
     try {
         var label_desc = await bzlQueryDeps()
         if(label_desc.length) {
-            var user_friendly_labels = []
-            var label_target_map = new Map()
-            for(var i=0; i<label_desc.length; i++) {
-                var trimmed_label = label_desc[i].kind.trim()
-                var should_add_target = false
+            label_desc = label_desc.filter(val => {
+                var trimmed_label = val.kind.trim()
                 if(rule_kinds.length) {
                     if(rule_kinds.includes(trimmed_label)) {
-                        should_add_target = true
+                        return true
                     }
                 } else {
                     var bzl_config = vscode.workspace.getConfiguration('bazel')
-                    if(!bzl_config.targetExcludes.includes(trimmed_label)) {
-                        should_add_target = true
+                    if(!bzl_config.ruleExcludes.includes(trimmed_label)) {
+                        return true
                     }
                 }
-                if(should_add_target) {
-                    var dec_label = bzlDecomposeLabel(label_desc[i].label)
-                    var user_friendly_label = bzlTranslateRuleKindToLanguage(
-                        label_desc[i].kind)
-                        + ' | pkg[' + dec_label.pkg + ']'
-                        + ' | ' + dec_label.target
-                    user_friendly_labels.push(user_friendly_label)
-                    label_target_map[user_friendly_label] = label_desc[i].label
-                }
-            }
-            var chosen_label = await Window.showQuickPick(user_friendly_labels)
-            target = label_target_map[chosen_label]
+                return false
+            })
+            var label_map = bzlBuildLabelList(label_desc)
+            var chosen_label = await Window.showQuickPick(
+                Array.from(label_map.keys()))
+            target = label_map.get(chosen_label)
+
         } else {
             Window.showErrorMessage('There are no targets available')
         }
@@ -149,7 +128,7 @@ async function bzlPickTarget(rule_kinds = []) {
 async function bzlBuildTarget(ctx) {
     var target = await bzlPickTarget()
     if((target != undefined) && (target != '')) {
-        bzlRunCommandInTerminal(ctx,
+        bzl_utils.bzlRunCommandInTerminal(ctx,
         'bazel build ' + target)
     }
 }
@@ -157,39 +136,24 @@ async function bzlBuildTarget(ctx) {
 async function bzlRunTarget(ctx) {
     var target = await bzlPickTarget()
     if((target != undefined) && (target != '')) {
-        bzlRunCommandInTerminal(ctx,
+        bzl_utils.bzlRunCommandInTerminal(ctx,
         'bazel run ' + target)
     }
 }
-
-// Extensions source folder that contains
-// all required runtime dependencies such
-// as the aspects file
-var BAZEL_EXT_RES_BASE_PATH = 'res'
-// The destination folder where all runtime
-// dependencies land that are required to be
-// in the target source tree.
-var BAZEL_EXT_DEST_BASE_PATH = '.vscode/.vs_code_bazel_build'
-// Bazel requires a package for the aspect.
-// This file will be empty.
-var BAZEL_BUILD_FILE = 'BUILD'
-// Required aspect for introspecting the
-// bazel dependency graph.
-var BAZEL_ASPECT_FILE = 'vs_code_aspect.bzl'
 
 // Intalls our required files into the targets
 // source tree under '.vscode'.
 async function bzlSetupWorkspace(ws_root, ext_root) {
     try {
-        var ws_dest = path.join(ws_root, BAZEL_EXT_DEST_BASE_PATH)
+        var ws_dest = path.join(ws_root, bzl_defines.BAZEL_EXT_DEST_BASE_PATH)
         await fs.mkdirs(ws_dest)
         await fs.writeFile(path.join(ws_dest,
-                BAZEL_BUILD_FILE), '')
+                bzl_defines.BAZEL_BUILD_FILE), '')
         await fs.copy(path.join(ext_root,
-                BAZEL_EXT_RES_BASE_PATH,
-                BAZEL_ASPECT_FILE),
+                bzl_defines.BAZEL_EXT_RES_BASE_PATH,
+                bzl_defines.BAZEL_ASPECT_FILE),
             path.join(ws_dest,
-                BAZEL_ASPECT_FILE))
+                bzl_defines.BAZEL_ASPECT_FILE))
     } catch(err) {
         console.log('error during file i/o '
             + err.toString())
@@ -224,39 +188,13 @@ async function bzlFindFiles(substr, root) {
     return found_files
 }
 
-function bzlGetBaseCppProperties() {
-    var cpp_props_config_name = ''
-    var cpp_props_config_intellisensemode = ''
-    switch(os.platform()) {
-        case 'linux':
-            cpp_props_config_name = 'Linux'
-            cpp_props_config_intellisensemode = 'clang-x64'
-        break;
-        case 'darwin':
-            cpp_props_config_name = 'Mac'
-            cpp_props_config_intellisensemode = 'clang-x64'
-        break;
-        case 'win32':
-            cpp_props_config_name = 'Win32'
-            cpp_props_config_intellisensemode = 'msvc-x64'
-        break;
-    }
-    return {
-        'configurations' : [{
-                'name' : cpp_props_config_name,
-                'intelliSenseMode' : cpp_props_config_intellisensemode,
-                'includePath' : [],
-                'browse' : {
-                    'path' : [],
-                    'limitSymbolsToIncludedHeaders' : true,
-                    'databaseFilename' : ''
-                }
-            }
-        ],
-        'version' : 3
-    }
-}
-
+// Evaluates the passed (C++) descriptor files and generates the file
+// 'c_cpp_properties.json' that makes all paths available to vscode  
+// under 'ws_root_dir/.vscode'.
+//
+// ws_root_dir: Root directory of the users workspace.
+// output_root_dir: Bazels output directory.
+// descriptors: Rule dependent descriptor data such as include paths.
 async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors) {
     try {
         var include_paths = new Set()
@@ -300,7 +238,7 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
         }
         if(cpp_props_create_file) {
             var path_arr = Array.from(include_paths)
-            var cpp_props_data = bzlGetBaseCppProperties()
+            var cpp_props_data = bzl_defines.bzlGetBaseCppProperties()
             for(var i=0; i<cpp_props_data.configurations.length; i++) {
                 cpp_props_data.configurations[i].includePath = path_arr
                 cpp_props_data.configurations[i].browse.path = path_arr
@@ -320,14 +258,14 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
 // * Create the vs code file 'c_cpp_properties.json'
 //   into the destination folder and append the found
 //   include paths to that file under the section
-//   'includePath'
+//   'includePath' as well as 'browse.path'
 async function bzlCreateCppProps(ctx) {
     try {
-        var has_workspace = await bzlHasWorkspace()
+        var has_workspace = await bzl_utils.bzlHasWorkspace()
         if(has_workspace) {
             var ws_root = Workspace.workspaceFolders[0].uri.fsPath
             var exists = await fs.exists(path.join(ws_root,
-                BAZEL_EXT_DEST_BASE_PATH, BAZEL_BUILD_FILE))
+                bzl_defines.BAZEL_EXT_DEST_BASE_PATH, bzl_defines.BAZEL_BUILD_FILE))
             if(!exists) {
                 // TODO Setup our workspace directly
                 // after WORKSPACE has been detected.
@@ -336,7 +274,7 @@ async function bzlCreateCppProps(ctx) {
             var cmd_args = [
                 'build',
                 '--aspects',
-                path.join(BAZEL_EXT_DEST_BASE_PATH, BAZEL_ASPECT_FILE)
+                path.join(bzl_defines.BAZEL_EXT_DEST_BASE_PATH, bzl_defines.BAZEL_ASPECT_FILE)
                     + '%vs_code_bazel_inspect',
                 '--output_groups=descriptor_files'
             ]
@@ -349,7 +287,7 @@ async function bzlCreateCppProps(ctx) {
             ])
             if((target != undefined) && (target != '')) {
                 cmd_args.push(target)
-                await bzlRunCommandFromShell(cmd_args.join(' '))
+                await bzl_utils.bzlRunCommandFromShell(cmd_args.join(' '))
 
                 // 1) Try to find all descriptor files the bazel
                 //    aspect might have generated into the output
@@ -376,7 +314,6 @@ async function bzlCreateCppProps(ctx) {
         console.log(err.toString())
     }
 }
-
 module.exports = {
     bzlBuildTarget : bzlBuildTarget,
     bzlRunTarget : bzlRunTarget,

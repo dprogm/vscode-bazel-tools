@@ -44,12 +44,22 @@
             "type": "object",
             "title": "Bazel Tools Configuration",
             "properties": {
-                "bazel.targetExcludes": {
+                "bazel.ruleExcludes": {
                     "type": "array",
                     "default": [
                         "filegroup"
                     ],
-                    "description": "Target excludes that should not be considered during querying"
+                    "description": "Rules that should not be considered during querying, e.g. filegroup"
+                },
+                "bazel.packageExcludes": {
+                    "type": "array",
+                    "default": [],
+                    "description": "Packages that should not be considered during querying, e.g. tools/compiler"
+                },
+                "bazel.enableTableView": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Show the label list as a table"
                 }
             }
         }
