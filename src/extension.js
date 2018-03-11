@@ -1,24 +1,52 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 const vscode = require('vscode');
 const bzl = require('./bzl_cmds')
 
-// this method is called when your extension is activated
-// your extension is activated the very first time the command is executed
-function activate(context) {
-    context.subscriptions.push(vscode.commands.registerCommand('bazel.buildTarget', function () {
-        bzl.bzlBuildTarget(context)
-    }));
-    context.subscriptions.push(vscode.commands.registerCommand('bazel.runTarget', function () {
-        bzl.bzlRunTarget(context)
-    }));
-    context.subscriptions.push(vscode.commands.registerCommand('bazel.createCppProps', function () {
-        bzl.bzlCreateCppProps(context)
-    }));
+async function activate(context) {
+    var available_cmds = [{
+            'cmd_id' : 'bazel.buildTarget',
+            'cmd_name' : 'Bazel Build',
+            'cmd_desc' : 'Build a bazel target',
+            'cmd_func' : bzl.bzlBuildTarget
+        },
+        {
+            'cmd_id' : 'bazel.runTarget',
+            'cmd_name' : 'Bazel Run',
+            'cmd_desc' : 'Run a bazel target',
+            'cmd_func' : bzl.bzlRunTarget
+        },
+        {
+            'cmd_id' : 'bazel.createCppProps',
+            'cmd_name' : 'Bazel Cpp',
+            'cmd_desc' : 'Create Cpp Properties',
+            'cmd_func' : bzl.bzlCreateCppProps
+        }
+    ]
+    var is_workspace_available = await bzl.bzlTryInit(context)
+    available_cmds.forEach(cmd_desc => {
+        context.subscriptions.push(vscode.commands.registerCommand(cmd_desc.cmd_id,
+            () => { cmd_desc.cmd_func(context) }));
+        if(is_workspace_available) {
+            addCommandButton(
+                cmd_desc.cmd_id,
+                cmd_desc.cmd_name,
+                cmd_desc.cmd_desc)
+        }
+    })
 }
-exports.activate = activate;
 
-// this method is called when your extension is deactivated
 function deactivate() {
 }
-exports.deactivate = deactivate;
+
+function addCommandButton(cmd_id, cmd_name, cmd_desc) {
+    var item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0)
+    item.tooltip = cmd_desc
+    item.color = 'Aquamarine'
+    item.text = '$(terminal) ' + cmd_name
+    item.command = cmd_id
+    item.show()
+}
+
+module.exports = {
+    activate : activate,
+    deactivate : deactivate
+}

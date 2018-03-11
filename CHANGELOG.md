@@ -1,5 +1,11 @@
 # Change Log
 
+### Version 0.0.4: March 12, 2018
+
+- init as soon as a WORKSPACE file is available
+- added status bar buttons for build, run and cpp properties generation
+- also consider cc_test and cc_import for c_cpp_properties generation
+
 ### Version 0.0.3: March 11, 2018
 
 - added option for package and rule excludes

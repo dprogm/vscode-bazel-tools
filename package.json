@@ -2,7 +2,7 @@
     "name": "vscode-bazel-tools",
     "displayName": "Bazel Tools",
     "description": "Bazel integration for Visual Studio Code",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "publisher": "dprogm",
     "repository": {
         "type": "git",
@@ -19,7 +19,8 @@
     "activationEvents": [
         "onCommand:bazel.buildTarget",
         "onCommand:bazel.runTarget",
-        "onCommand:bazel.createCppProps"
+        "onCommand:bazel.createCppProps",
+        "workspaceContains:WORKSPACE"
     ],
     "main": "./src/extension",
     "contributes": {

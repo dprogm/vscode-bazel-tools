@@ -261,16 +261,9 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
 //   'includePath' as well as 'browse.path'
 async function bzlCreateCppProps(ctx) {
     try {
-        var has_workspace = await bzl_utils.bzlHasWorkspace()
+        var has_workspace = await bzlTryInit(ctx)
         if(has_workspace) {
             var ws_root = Workspace.workspaceFolders[0].uri.fsPath
-            var exists = await fs.exists(path.join(ws_root,
-                bzl_defines.BAZEL_EXT_DEST_BASE_PATH, bzl_defines.BAZEL_BUILD_FILE))
-            if(!exists) {
-                // TODO Setup our workspace directly
-                // after WORKSPACE has been detected.
-                await bzlSetupWorkspace(ws_root, ctx.extensionPath)
-            }
             var cmd_args = [
                 'build',
                 '--aspects',
@@ -278,12 +271,13 @@ async function bzlCreateCppProps(ctx) {
                     + '%vs_code_bazel_inspect',
                 '--output_groups=descriptor_files'
             ]
-
             // For c_cpp_properties we are only
             // interested in C++ targets.
             var target = await bzlPickTarget([
                 'cc_library',
-                'cc_binary'
+                'cc_import',
+                'cc_binary',
+                'cc_test'
             ])
             if((target != undefined) && (target != '')) {
                 cmd_args.push(target)
@@ -314,8 +308,24 @@ async function bzlCreateCppProps(ctx) {
         console.log(err.toString())
     }
 }
+
+async function bzlTryInit(ctx) {
+    var has_workspace = await bzl_utils.bzlHasWorkspace()
+    if(has_workspace) {
+        var ws_root = Workspace.workspaceFolders[0].uri.fsPath
+        var exists = await fs.exists(path.join(ws_root,
+            bzl_defines.BAZEL_EXT_DEST_BASE_PATH,
+            bzl_defines.BAZEL_BUILD_FILE))
+        if(!exists) {
+            await bzlSetupWorkspace(ws_root, ctx.extensionPath)
+        }
+    }
+    return has_workspace
+}
+
 module.exports = {
     bzlBuildTarget : bzlBuildTarget,
     bzlRunTarget : bzlRunTarget,
-    bzlCreateCppProps : bzlCreateCppProps
+    bzlCreateCppProps : bzlCreateCppProps,
+    bzlTryInit : bzlTryInit
 }
