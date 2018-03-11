@@ -35,7 +35,7 @@ async function bzlQueryDeps() {
 }
 
 // Split the bazel label into its atomic parts:
-// package and target (name) 
+// package and target (name)
 function bzlDecomposeLabel(label) {
     var pkg_root = '//'
     var target_idx = label.search(':')
@@ -83,7 +83,7 @@ function bzlBuildLabelList(label_desc) {
             }
         }
         var list_entry = label_parts[i].lang
-            + ' | ' + label_parts[i].pkg
+            + ' | pkg{' + label_parts[i].pkg + '}'
             + ' | ' + label_parts[i].target
         label_map.set(list_entry, label_desc[i].label)
     }
@@ -189,7 +189,7 @@ async function bzlFindFiles(substr, root) {
 }
 
 // Evaluates the passed (C++) descriptor files and generates the file
-// 'c_cpp_properties.json' that makes all paths available to vscode  
+// 'c_cpp_properties.json' that makes all paths available to vscode
 // under 'ws_root_dir/.vscode'.
 //
 // ws_root_dir: Root directory of the users workspace.
