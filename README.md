@@ -17,6 +17,12 @@ Bazel integration for Visual Studio Code. If you also want to have syntax highli
 * A recent version of [bazel](https://www.bazel.build/)
 
 ## Roadmap
+
+- Add commands for bazel `clean`, `fetch` and `test` and provide a user friendly interface for them, especially for `query`. Here we could implement a graph view within vscode that visualizes the dependencies and shows up useful information for each target.
+
+- Extend the language support, especially Java.
+
+Tasks:
 - [x] Implement a target picker based on bazel query and build the selected target based on the user decision. Use vscodes terminal for that purpose.
 - [x] Implement the run command.
 - [x] Implement the `vs_code_aspect` that generates programming language dependent descriptor files. Traverses all C++ dependencies and outputs all include paths known to bazel. Installs the aspect as well as a `BUILD` file into the users workspace in order to make it 'applicable'.
@@ -30,6 +36,11 @@ Bazel integration for Visual Studio Code. If you also want to have syntax highli
 - [ ] Consider the visibility of each target
 - [ ] Dive deeper into JS and develop a solid extension architecture.
 - [x] Provide buttons for build and run.
+- [ ] Wrap the bazel commands into a class with a handy interface.
 
 ## Contribute
-Let me know if you have any suggestions or if you want to contribute. I am happy about any support. The current status is far away from a release version but you can simply check it out and try it in your vscode editor.
+Let me know if you have any suggestions or if you want to contribute. I am happy about any support. The current status is far away from a release version but you can simply check it out and try it in your vscode editor by running:
+```shell
+npm install
+```
+Then you can run it in the developer mode.
