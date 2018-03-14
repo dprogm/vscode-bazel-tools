@@ -22,7 +22,7 @@
         "onCommand:bazel.createCppProps",
         "workspaceContains:WORKSPACE"
     ],
-    "main": "./src/extension",
+    "main": "./out/extension",
     "contributes": {
         "commands": [
             {
@@ -66,8 +66,11 @@
         }
     },
     "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
         "postinstall": "node ./node_modules/vscode/bin/install",
-        "test": "node ./node_modules/vscode/bin/test"
+        "test": "npm run compile && node ./node_modules/vscode/bin/test"
     },
     "devDependencies": {
         "typescript": "^2.6.1",
@@ -77,8 +80,8 @@
         "@types/mocha": "^2.2.42"
     },
     "dependencies": {
+        "@types/fs-extra": "^5.0.1",
         "child-process-async": "^1.0.1",
-        "fs-extra": "^5.0.0",
         "node-exec-promise": "^1.0.2"
     }
 }

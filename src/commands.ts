@@ -1,10 +1,8 @@
-const bzl_defines = require('./bzl_defines')
-const bzl_utils = require('./bzl_utils')
-const vscode = require('vscode')
-const fs = require('fs-extra')
-const path = require('path')
-const Workspace = vscode.workspace
-const Window = vscode.window
+import {workspace as Workspace, window as Window, InputBoxOptions, ExtensionContext} from 'vscode'
+import * as fs from 'fs-extra'
+import * as path from 'path'
+import * as bzl_defines from './defines'
+import * as bzl_utils from './utils'
 
 async function bzlQueryDeps() {
     var label_desc = []
@@ -36,7 +34,7 @@ async function bzlQueryDeps() {
 
 // Split the bazel label into its atomic parts:
 // package and target (name)
-function bzlDecomposeLabel(label) {
+function bzlDecomposeLabel(label:string) {
     var pkg_root = '//'
     var target_idx = label.search(':')
     return {
@@ -47,11 +45,11 @@ function bzlDecomposeLabel(label) {
     }
 }
 
-function bzlBuildLabelList(label_desc) {
-    var bzl_config = vscode.workspace.getConfiguration('bazel')
+function bzlBuildLabelList(label_desc:any) {
+    var bzl_config = Workspace.getConfiguration('bazel')
     var table_view_enabled = bzl_config.enableTableView
-    var label_parts = []
-    var max_widths = []
+    var label_parts: any = []
+    var max_widths: number[] = []
     for(var i=0; i<label_desc.length; i++) {
         var dec_label = bzlDecomposeLabel(label_desc[i].label)
         label_parts.push({
@@ -62,7 +60,7 @@ function bzlBuildLabelList(label_desc) {
         })
         if(table_view_enabled) {
             Object.keys(label_parts[i]).forEach((str,idx) => {
-                var prop_val = Object.values(label_parts[i])[idx]
+                var prop_val = label_parts[i][Object.keys(label_parts[i])[idx]]
                 if(max_widths.length < (idx+1)) {
                     max_widths.push(prop_val.length)
                 } else if(prop_val.length > max_widths[idx]) {
@@ -92,7 +90,7 @@ function bzlBuildLabelList(label_desc) {
 
 // If 'rule_kinds' are not empty then excludes extends
 // to all target kinds except that of 'rule_kinds'.
-async function bzlPickTarget(rule_kinds = []) {
+async function bzlPickTarget(rule_kinds: any = []) : Promise<string> {
     var target = ''
     try {
         var label_desc = await bzlQueryDeps()
@@ -104,7 +102,7 @@ async function bzlPickTarget(rule_kinds = []) {
                         return true
                     }
                 } else {
-                    var bzl_config = vscode.workspace.getConfiguration('bazel')
+                    var bzl_config = Workspace.getConfiguration('bazel')
                     if(!bzl_config.ruleExcludes.includes(trimmed_label)) {
                         return true
                     }
@@ -125,7 +123,7 @@ async function bzlPickTarget(rule_kinds = []) {
     return target
 }
 
-async function bzlBuildTarget(ctx) {
+export async function bzlBuildTarget(ctx: ExtensionContext) {
     var target = await bzlPickTarget()
     if((target != undefined) && (target != '')) {
         bzl_utils.bzlRunCommandInTerminal(ctx,
@@ -133,7 +131,7 @@ async function bzlBuildTarget(ctx) {
     }
 }
 
-async function bzlRunTarget(ctx) {
+export async function bzlRunTarget(ctx: ExtensionContext) {
     var target = await bzlPickTarget()
     if((target != undefined) && (target != '')) {
         bzl_utils.bzlRunCommandInTerminal(ctx,
@@ -143,7 +141,7 @@ async function bzlRunTarget(ctx) {
 
 // Intalls our required files into the targets
 // source tree under '.vscode'.
-async function bzlSetupWorkspace(ws_root, ext_root) {
+async function bzlSetupWorkspace(ws_root: string, ext_root: string) {
     try {
         var ws_dest = path.join(ws_root, bzl_defines.BAZEL_EXT_DEST_BASE_PATH)
         await fs.mkdirs(ws_dest)
@@ -163,7 +161,7 @@ async function bzlSetupWorkspace(ws_root, ext_root) {
 // Find files by searching recursively beginning at
 // a given root directory. A filename matches if it
 // contains 'substr'
-async function bzlFindFiles(substr, root) {
+async function bzlFindFiles(substr: string, root: string) : Promise<string[]> {
     var found_files = []
     try {
         var files = await fs.readdir(root)
@@ -195,12 +193,12 @@ async function bzlFindFiles(substr, root) {
 // ws_root_dir: Root directory of the users workspace.
 // output_root_dir: Bazels output directory.
 // descriptors: Rule dependent descriptor data such as include paths.
-async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors) {
+async function bzlCreateCppProperties(ws_root_dir: string, output_root_dir: string, descriptors: any) {
     try {
         var include_paths = new Set()
         for(var i=0; i<descriptors.length; i++) {
             var buf = await fs.readFile(descriptors[i])
-            var descriptor = JSON.parse(buf)
+            var descriptor = JSON.parse(buf.toString())
             var bzl_rule_kind = descriptor.kind
             if(bzl_rule_kind == 'cc_binary'
                 || bzl_rule_kind == 'cc_library'
@@ -226,7 +224,7 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
         var cpp_props_available = await fs.exists(cpp_props_file)
         var cpp_props_create_file = true
         if(cpp_props_available) {
-            var options = vscode.InputBoxOptions = {
+            var options: InputBoxOptions = {
                 prompt: 'There is already a c_cpp_properties.json file in '
                       + 'your workspace. Can we overwrite it?',
                 placeHolder : 'y/yes | n/no',
@@ -238,7 +236,7 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
         }
         if(cpp_props_create_file) {
             var path_arr = Array.from(include_paths)
-            var cpp_props_data = bzl_defines.bzlGetBaseCppProperties()
+            var cpp_props_data:any = bzl_defines.bzlGetBaseCppProperties()
             for(var i=0; i<cpp_props_data.configurations.length; i++) {
                 cpp_props_data.configurations[i].includePath = path_arr
                 cpp_props_data.configurations[i].browse.path = path_arr
@@ -259,48 +257,51 @@ async function bzlCreateCppProperties(ws_root_dir, output_root_dir, descriptors)
 //   into the destination folder and append the found
 //   include paths to that file under the section
 //   'includePath' as well as 'browse.path'
-async function bzlCreateCppProps(ctx) {
+export async function bzlCreateCppProps(ctx: ExtensionContext) {
     try {
         var has_workspace = await bzlTryInit(ctx)
         if(has_workspace) {
-            var ws_root = Workspace.workspaceFolders[0].uri.fsPath
-            var cmd_args = [
-                'build',
-                '--aspects',
-                path.join(bzl_defines.BAZEL_EXT_DEST_BASE_PATH, bzl_defines.BAZEL_ASPECT_FILE)
-                    + '%vs_code_bazel_inspect',
-                '--output_groups=descriptor_files'
-            ]
-            // For c_cpp_properties we are only
-            // interested in C++ targets.
-            var target = await bzlPickTarget([
-                'cc_library',
-                'cc_import',
-                'cc_binary',
-                'cc_test'
-            ])
-            if((target != undefined) && (target != '')) {
-                cmd_args.push(target)
-                await bzl_utils.bzlRunCommandFromShell(cmd_args.join(' '))
+            var ws_folders = Workspace.workspaceFolders
+            if(ws_folders != undefined) {
+                var ws_root = ws_folders[0].uri.fsPath
+                var cmd_args = [
+                    'build',
+                    '--aspects',
+                    path.join(bzl_defines.BAZEL_EXT_DEST_BASE_PATH, bzl_defines.BAZEL_ASPECT_FILE)
+                        + '%vs_code_bazel_inspect',
+                    '--output_groups=descriptor_files'
+                ]
+                // For c_cpp_properties we are only
+                // interested in C++ targets.
+                var target = await bzlPickTarget([
+                    'cc_library',
+                    'cc_import',
+                    'cc_binary',
+                    'cc_test'
+                ])
+                if((target != undefined) && (target != '')) {
+                    cmd_args.push(target)
+                    await bzl_utils.bzlRunCommandFromShell(cmd_args.join(' '))
 
-                // 1) Try to find all descriptor files the bazel
-                //    aspect might have generated into the output
-                //    directory 'bazel-bin'
-                var descriptors = await bzlFindFiles('vs_code_bazel_descriptor',
-                    path.join(ws_root, 'bazel-bin'))
+                    // 1) Try to find all descriptor files the bazel
+                    //    aspect might have generated into the output
+                    //    directory 'bazel-bin'
+                    var descriptors = await bzlFindFiles('vs_code_bazel_descriptor',
+                        path.join(ws_root, 'bazel-bin'))
 
-                // 2) Build absolute include paths based on the
-                //    relative paths from the descriptors and
-                //    the symlinked bazel workspace 'bazel-<root>'
-                //    where root is the current working directory.
-                await bzlCreateCppProperties(
-                    ws_root,
-                    path.join(ws_root,
-                    'bazel-' + path.basename(ws_root)),
-                    descriptors)
-                // 3) Cleanup all temporary descriptor files
-                for(var i=0; i<descriptors.length; i++) {
-                    fs.unlink(descriptors[i])
+                    // 2) Build absolute include paths based on the
+                    //    relative paths from the descriptors and
+                    //    the symlinked bazel workspace 'bazel-<root>'
+                    //    where root is the current working directory.
+                    await bzlCreateCppProperties(
+                        ws_root,
+                        path.join(ws_root,
+                        'bazel-' + path.basename(ws_root)),
+                        descriptors)
+                    // 3) Cleanup all temporary descriptor files
+                    for(var i=0; i<descriptors.length; i++) {
+                        fs.unlink(descriptors[i])
+                    }
                 }
             }
         }
@@ -309,23 +310,19 @@ async function bzlCreateCppProps(ctx) {
     }
 }
 
-async function bzlTryInit(ctx) {
+export async function bzlTryInit(ctx: ExtensionContext) {
     var has_workspace = await bzl_utils.bzlHasWorkspace()
     if(has_workspace) {
-        var ws_root = Workspace.workspaceFolders[0].uri.fsPath
-        var exists = await fs.exists(path.join(ws_root,
-            bzl_defines.BAZEL_EXT_DEST_BASE_PATH,
-            bzl_defines.BAZEL_BUILD_FILE))
-        if(!exists) {
-            await bzlSetupWorkspace(ws_root, ctx.extensionPath)
+        var ws_folders = Workspace.workspaceFolders;
+        if(ws_folders != undefined) {
+            var ws_root = ws_folders[0].uri.fsPath
+            var exists = await fs.exists(path.join(ws_root,
+                bzl_defines.BAZEL_EXT_DEST_BASE_PATH,
+                bzl_defines.BAZEL_BUILD_FILE))
+            if(!exists) {
+                await bzlSetupWorkspace(ws_root, ctx.extensionPath)
+            }
         }
     }
     return has_workspace
-}
-
-module.exports = {
-    bzlBuildTarget : bzlBuildTarget,
-    bzlRunTarget : bzlRunTarget,
-    bzlCreateCppProps : bzlCreateCppProps,
-    bzlTryInit : bzlTryInit
 }

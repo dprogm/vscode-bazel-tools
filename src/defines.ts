@@ -1,27 +1,27 @@
-const os = require('os')
+import * as os from 'os'
 
 // Extensions source folder that contains
 // all required runtime dependencies such
 // as the aspects file
-exports.BAZEL_EXT_RES_BASE_PATH = 'res'
+export var BAZEL_EXT_RES_BASE_PATH = 'res'
 // The destination folder where all runtime
 // dependencies land that are required to be
 // in the target source tree.
-exports.BAZEL_EXT_DEST_BASE_PATH = '.vscode/.vs_code_bazel_build'
+export var BAZEL_EXT_DEST_BASE_PATH = '.vscode/.vs_code_bazel_build'
 // Bazel requires a package for the aspect.
 // This file will be empty.
-exports.BAZEL_BUILD_FILE = 'BUILD'
+export var BAZEL_BUILD_FILE = 'BUILD'
 // Required aspect for introspecting the
 // bazel dependency graph.
-exports.BAZEL_ASPECT_FILE = 'vs_code_aspect.bzl'
+export var BAZEL_ASPECT_FILE = 'vs_code_aspect.bzl'
 
-// Maps bazel rules that belong together to their 
+// Maps bazel rules that belong together to their
 // target programming language. If a rule is not
 // used for compiling any language but aims to
 // fulfill a more general task then we use the
 // rule kind as the return value.
 // TODO: Complete this map.
-function bzlTranslateRuleKindToLanguage(rule_kind) {
+export function bzlTranslateRuleKindToLanguage(rule_kind:string) {
     rule_kind = rule_kind.trim()
     var lang = rule_kind
     switch(rule_kind) {
@@ -54,7 +54,7 @@ function bzlTranslateRuleKindToLanguage(rule_kind) {
     return lang
 }
 
-function bzlGetBaseCppProperties() {
+export function bzlGetBaseCppProperties() {
     var cpp_props_config_name = ''
     var cpp_props_config_intellisensemode = ''
     switch(os.platform()) {
@@ -86,6 +86,3 @@ function bzlGetBaseCppProperties() {
         'version' : 3
     }
 }
-
-module.exports.bzlTranslateRuleKindToLanguage = bzlTranslateRuleKindToLanguage
-module.exports.bzlGetBaseCppProperties = bzlGetBaseCppProperties

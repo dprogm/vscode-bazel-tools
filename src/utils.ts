@@ -1,11 +1,9 @@
+import {workspace as Workspace, window as Window, ExtensionContext} from 'vscode'
 const child_proc = require('child-process-async');
-const vscode = require('vscode')
-const Workspace = vscode.workspace
-const Window = vscode.window
 
 // * Execute our bazel command
 // * Make the terminal visible to the user
-async function bzlRunCommandInTerminal(ctx, cmd) {
+export async function bzlRunCommandInTerminal(ctx: ExtensionContext, cmd:string) {
     var term = Window.createTerminal()
     term.sendText(cmd)
     term.show()
@@ -14,14 +12,19 @@ async function bzlRunCommandInTerminal(ctx, cmd) {
 }
 
 // Executes a bazel command, e.g. query or build.
-async function bzlRunCommandFromShell(cmd_args) {
+export async function bzlRunCommandFromShell(cmd_args: string) {
+    var ws_folders = Workspace.workspaceFolders
+    var ws_path:string = ''
+    if(ws_folders != undefined) {
+        ws_path = ws_folders[0].uri.fsPath
+    }
     return child_proc.exec('"bazel" ' + cmd_args, {
-        'cwd': Workspace.workspaceFolders[0].uri.fsPath
+        'cwd': ws_path
     })
 }
 
 // Checks whether the opened folder defines a bazel workspace
-async function bzlHasWorkspace() {
+export async function bzlHasWorkspace() : Promise<boolean> {
     try {
         var uris = await Workspace.findFiles('WORKSPACE')
         if(uris.length) {
@@ -31,10 +34,4 @@ async function bzlHasWorkspace() {
         Window.showErrorMessage(error.toString())
     }
     return false;
-}
-
-module.exports = {
-    bzlRunCommandInTerminal : bzlRunCommandInTerminal,
-    bzlRunCommandFromShell : bzlRunCommandFromShell,
-    bzlHasWorkspace : bzlHasWorkspace
 }
