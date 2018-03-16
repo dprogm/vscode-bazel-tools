@@ -1,4 +1,4 @@
-import {workspace as Workspace, window as Window, InputBoxOptions, ExtensionContext} from 'vscode'
+import { workspace as Workspace, window as Window, commands as Commands, ViewColumn, InputBoxOptions, ExtensionContext, Uri} from 'vscode'
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import * as bzl_defines from './defines'
@@ -137,6 +137,10 @@ export async function bzlRunTarget(ctx: ExtensionContext) {
         bzl_utils.bzlRunCommandInTerminal(ctx,
         'bazel run ' + target)
     }
+}
+
+export async function bzlClean(ctx: ExtensionContext) {
+    bzl_utils.bzlRunCommandInTerminal(ctx, 'bazel clean')
 }
 
 // Intalls our required files into the targets
@@ -325,4 +329,10 @@ export async function bzlTryInit(ctx: ExtensionContext) {
         }
     }
     return has_workspace
+}
+
+export async function bzlShowDepGraph(ctx: ExtensionContext) {
+    var uri = Uri.parse("bazel_dep_graph://")
+    Commands.executeCommand("vscode.previewHtml", uri,
+        ViewColumn.Two, "Graph View")
 }
