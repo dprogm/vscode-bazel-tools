@@ -58,12 +58,14 @@ function bzlMakeQueryQuickPickItem(queryItem: BazelQueryItem): BazelQueryQuickPi
 }
 
 async function bzlQuickPickQuery(query: string = '...', options?: QuickPickOptions) {
+
     return Window.showQuickPick(bzlQuery(query).then(deps => {
         return deps.map(bzlMakeQueryQuickPickItem);
-    }, err => {
-        return Window.showQuickPick<any>([], {
+    }).catch(async err => {
+        await Window.showQuickPick([], {
             placeHolder: "<ERROR>"
         });
+        return [];
     }), options);
 }
 
