@@ -112,7 +112,7 @@ export async function bzlBuildTarget(ctx: ExtensionContext) {
 }
 
 export async function bzlRunTarget(ctx: ExtensionContext) {
-    var target = await bzlQuickPickQuery('kind(.*_binary, deps(//:*))', {
+    var target = await bzlQuickPickQuery('kind(.*_binary, deps(...))', {
         matchOnDescription: true,
         matchOnDetail: true,
         placeHolder: "Run bazel binary target (*_binary)"
