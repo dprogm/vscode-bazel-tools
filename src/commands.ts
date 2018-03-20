@@ -1,35 +1,89 @@
-import { workspace as Workspace, window as Window, commands as Commands, ViewColumn, InputBoxOptions, ExtensionContext, Uri} from 'vscode'
+import {
+    workspace as Workspace,
+    window as Window,
+    commands as Commands,
+    ViewColumn,
+    InputBoxOptions,
+    ExtensionContext,
+    Uri,
+    QuickPickItem,
+    QuickPickOptions
+} from 'vscode'
 import * as fs from 'fs-extra'
 import * as path from 'path'
 import * as bzl_defines from './defines'
 import * as bzl_utils from './utils'
 
-async function bzlQueryDeps() {
-    var label_desc = []
-    var has_workspace = await bzl_utils.bzlHasWorkspace()
-    var bzl_config = Workspace.getConfiguration('bazel')
-    var excluded_packages = bzl_config.packageExcludes.join(',')
-    if(has_workspace) {
-        var child = await bzl_utils.bzlRunCommandFromShell('query ...'
-            + ' --deleted_packages=' + excluded_packages
-            + ' --output label_kind')
-        var deps = child.stdout.split('\n')
-        for(var i=0; i<deps.length; i++) {
-            if(deps[i] != undefined && deps[i]) {
-                var sep = ' rule '
-                var idx = deps[i].search(sep)
-                if(idx != -1) {
-                    var rule_kind = deps[i].substr(0, idx)
-                    var target_label = deps[i].substr(idx+sep.length)
-                    label_desc.push({
-                        'kind' : rule_kind,
-                        'label' : target_label
-                    })
-                }
-            }
-        }
+interface BazelQueryItem {
+    kind: string
+    label: string
+}
+
+interface BazelQueryQuickPickItem extends QuickPickItem {
+    query_item: BazelQueryItem
+}
+
+function bzlMakeQueryQuickPickItemParsed(queryItem: BazelQueryItem) {
+    let {pkg, target} = bzlDecomposeLabel(queryItem.label);
+    let lang = bzl_defines.bzlTranslateRuleKindToLanguage(queryItem.kind)
+
+    return {
+        label: target,
+        description: "",
+        detail: `${lang} | pkg{${pkg}}`,
+        query_item: queryItem
     }
-    return label_desc
+}
+
+function bzlMakeQueryQuickPickItemParsedRaw(queryItem: BazelQueryItem) {
+    return {
+        label: queryItem.label,
+        description: "",
+        detail: queryItem.kind,
+        query_item: queryItem
+    }
+}
+
+function bzlMakeQueryQuickPickItem(queryItem: BazelQueryItem): BazelQueryQuickPickItem {
+    let bzl_config = Workspace.getConfiguration('bazel')
+    return bzl_config.get('rawLabelDisplay') ?
+        bzlMakeQueryQuickPickItemParsedRaw(queryItem) :
+        bzlMakeQueryQuickPickItemParsed(queryItem)
+}
+
+async function bzlQuickPickQuery(query: string = '...', options?: QuickPickOptions) {
+    return Window.showQuickPick(bzlQuery(query).then(deps => {
+        return deps.map(bzlMakeQueryQuickPickItem);
+    }), options);
+}
+
+async function bzlQuery(query: string = '...'): Promise<BazelQueryItem[]> {
+    let bzl_config = Workspace.getConfiguration('bazel')
+    let excluded_packages = bzl_config.packageExcludes.join(',')
+    let child = await bzl_utils.bzlRunCommandFromShell('query '
+        + query
+        + ' --noimplicit_deps'
+        + ' --nohost_deps'
+        + ' --deleted_packages=' + excluded_packages
+        + ' --output label_kind'
+    );
+
+    let stdout = child.stdout.trim();
+    let deps = stdout ? stdout.split('\n') : [];
+    let sep = ' rule ';
+
+    return deps.map((dep:string) => {
+        let idx = dep.search(sep)
+        let rule_kind = dep.substr(0, idx)
+        let target_label = dep.substr(idx+sep.length)
+
+        let item: BazelQueryItem = {
+            kind: rule_kind,
+            label: target_label
+        }
+
+        return item;
+    });
 }
 
 // Split the bazel label into its atomic parts:
@@ -45,97 +99,27 @@ function bzlDecomposeLabel(label:string) {
     }
 }
 
-function bzlBuildLabelList(label_desc:any) {
-    var bzl_config = Workspace.getConfiguration('bazel')
-    var table_view_enabled = bzl_config.enableTableView
-    var label_parts: any = []
-    var max_widths: number[] = []
-    for(var i=0; i<label_desc.length; i++) {
-        var dec_label = bzlDecomposeLabel(label_desc[i].label)
-        label_parts.push({
-            'lang' : bzl_defines.bzlTranslateRuleKindToLanguage(
-                label_desc[i].kind),
-            'pkg' : dec_label.pkg,
-            'target' : dec_label.target
-        })
-        if(table_view_enabled) {
-            Object.keys(label_parts[i]).forEach((str,idx) => {
-                var prop_val = label_parts[i][Object.keys(label_parts[i])[idx]]
-                if(max_widths.length < (idx+1)) {
-                    max_widths.push(prop_val.length)
-                } else if(prop_val.length > max_widths[idx]) {
-                    max_widths[idx] = prop_val.length
-                }
-            })
-        }
-    }
-    var label_map = new Map()
-    for(var i=0; i<label_parts.length; i++) {
-        if(table_view_enabled) {
-            for(var j=0; j<max_widths.length; j++) {
-                var obj_keys = Object.keys(label_parts[i])
-                if(label_parts[i][obj_keys[j]].length < max_widths[j]) {
-                    label_parts[i][obj_keys[j]] = label_parts[i][obj_keys[j]] + new Array(
-                        max_widths[j]-label_parts[i][obj_keys[j]].length+1).join('.')
-                }
-            }
-        }
-        var list_entry = label_parts[i].lang
-            + ' | pkg{' + label_parts[i].pkg + '}'
-            + ' | ' + label_parts[i].target
-        label_map.set(list_entry, label_desc[i].label)
-    }
-    return label_map
-}
-
-// If 'rule_kinds' are not empty then excludes extends
-// to all target kinds except that of 'rule_kinds'.
-async function bzlPickTarget(rule_kinds: any = []) : Promise<string> {
-    var target = ''
-    try {
-        var label_desc = await bzlQueryDeps()
-        if(label_desc.length) {
-            label_desc = label_desc.filter(val => {
-                var trimmed_label = val.kind.trim()
-                if(rule_kinds.length) {
-                    if(rule_kinds.includes(trimmed_label)) {
-                        return true
-                    }
-                } else {
-                    var bzl_config = Workspace.getConfiguration('bazel')
-                    if(!bzl_config.ruleExcludes.includes(trimmed_label)) {
-                        return true
-                    }
-                }
-                return false
-            })
-            var label_map = bzlBuildLabelList(label_desc)
-            var chosen_label = await Window.showQuickPick(
-                Array.from(label_map.keys()))
-            target = label_map.get(chosen_label)
-
-        } else {
-            Window.showErrorMessage('There are no targets available')
-        }
-    } catch(error) {
-        Window.showErrorMessage(error.toString())
-    }
-    return target
-}
-
 export async function bzlBuildTarget(ctx: ExtensionContext) {
-    var target = await bzlPickTarget()
-    if((target != undefined) && (target != '')) {
+    var target = await bzlQuickPickQuery('...', {
+        matchOnDescription: true,
+        matchOnDetail: true,
+        placeHolder: "bazel build"
+    })
+    if(target) {
         bzl_utils.bzlRunCommandInTerminal(ctx,
-        'bazel build ' + target)
+        'bazel build ' + target.query_item.label)
     }
 }
 
 export async function bzlRunTarget(ctx: ExtensionContext) {
-    var target = await bzlPickTarget()
-    if((target != undefined) && (target != '')) {
+    var target = await bzlQuickPickQuery('kind(.*_binary, deps(//:*))', {
+        matchOnDescription: true,
+        matchOnDetail: true,
+        placeHolder: "Run bazel binary target (*_binary)"
+    })
+    if(target) {
         bzl_utils.bzlRunCommandInTerminal(ctx,
-        'bazel run ' + target)
+        'bazel run ' + target.query_item.label)
     }
 }
 
@@ -277,14 +261,13 @@ export async function bzlCreateCppProps(ctx: ExtensionContext) {
                 ]
                 // For c_cpp_properties we are only
                 // interested in C++ targets.
-                var target = await bzlPickTarget([
-                    'cc_library',
-                    'cc_import',
-                    'cc_binary',
-                    'cc_test'
-                ])
-                if((target != undefined) && (target != '')) {
-                    cmd_args.push(target)
+                var target = await bzlQuickPickQuery('kind(cc_.*, deps(...))', {
+                    matchOnDescription: true,
+                    matchOnDetail: true,
+                    placeHolder: "Generate cpp properties for target ..."
+                })
+                if(target) {
+                    cmd_args.push(target.query_item.label)
                     await bzl_utils.bzlRunCommandFromShell(cmd_args.join(' '))
 
                     // 1) Try to find all descriptor files the bazel

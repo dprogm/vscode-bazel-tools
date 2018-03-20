@@ -69,10 +69,10 @@
                     "default": [],
                     "description": "Packages that should not be considered during querying, e.g. tools/compiler"
                 },
-                "bazel.enableTableView": {
+                "bazel.rawLabelDisplay": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Show the label list as a table"
+                    "description": "When set to true labels will not be parsed"
                 }
             }
         }
