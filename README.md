@@ -8,9 +8,13 @@ Bazel integration for Visual Studio Code. If you also want to have syntax highli
 * Generation of files for code navigation and auto-completion, e.g. `c_cpp_properties.json`
 
 ### Commands
+
 * **Bazel: Create C++ Properties**: Creates a `c_cpp_properties.json` file that contains all transitive include paths starting from a root C++ target. Takes also the used toolchain into account and uses their system include directories.
 * **Bazel: Build**: Builds a target chosen from the shown label list.
 * **Bazel: Run**: Runs a target chosen from the shown label list.
+* **Bazel: Clean**: Cleans up the output directories.
+
+For each command listed above there is also a button available in the status bar.
 
 ## Requirements
 
