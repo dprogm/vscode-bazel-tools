@@ -61,7 +61,7 @@ async function bzlQuery(query: string = '...'): Promise<BazelQueryItem[]> {
     let bzl_config = Workspace.getConfiguration('bazel')
     let excluded_packages = bzl_config.packageExcludes.join(',')
     let child = await bzl_utils.bzlRunCommandFromShell('query '
-        + query
+        + `"${query}"`
         + ' --noimplicit_deps'
         + ' --nohost_deps'
         + ' --deleted_packages=' + excluded_packages
