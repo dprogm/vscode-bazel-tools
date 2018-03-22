@@ -24,13 +24,13 @@ interface BazelQueryQuickPickItem extends QuickPickItem {
 }
 
 function bzlMakeQueryQuickPickItemParsed(queryItem: BazelQueryItem) {
-    let {pkg, target} = bzlDecomposeLabel(queryItem.label);
+    let {ws, pkg, target} = bzlDecomposeLabel(queryItem.label);
     let lang = bzl_defines.bzlTranslateRuleKindToLanguage(queryItem.kind)
 
     return {
         label: target,
         description: "",
-        detail: `${lang} | pkg{${pkg}}`,
+        detail: `${lang} | ws{${ws}} | pkg{${pkg}}`,
         query_item: queryItem
     }
 }
@@ -93,13 +93,25 @@ async function bzlQuery(query: string = '...'): Promise<BazelQueryItem[]> {
 }
 
 // Split the bazel label into its atomic parts:
-// package and target (name)
+// workspace name, package and target (name)
+//
+// Pattern: @ws_name//pkg:target
+//
+// The current workspace is referred to as the local
+// workspace in contrast with remote workspaces that
+// are identified by the prefixed at sign.
 function bzlDecomposeLabel(label:string) {
     var pkg_root = '//'
+    var ws_index = label.search(pkg_root)
+    var ws_name = ws_index > 0 
+        ? label.substr(0, ws_index)
+        : 'local'
     var target_idx = label.search(':')
+    var pkg_offset = ws_index+pkg_root.length
     return {
-        'pkg' : label.substr(pkg_root.length,
-            target_idx-pkg_root.length),
+        'ws' : ws_name,
+        'pkg' : label.substr(pkg_offset,
+            target_idx-pkg_offset),
         'target' : label.substr(target_idx+1,
             label.length-target_idx)
     }

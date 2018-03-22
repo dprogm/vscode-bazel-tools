@@ -2,7 +2,7 @@ def _vs_code_bazel_inspect_impl(target, ctx):
     rule_data = None
     rule_kind = ctx.rule.kind
     trans_descriptor_files = []
-    if rule_kind == 'cc_library' or rule_kind == 'cc_binary' or rule_kind == 'boost_library':
+    if rule_kind == 'cc_library' or rule_kind == 'cc_binary':
         rule_data = struct(
             includes = target.cc.include_directories
                 + target.cc.quote_include_directories
