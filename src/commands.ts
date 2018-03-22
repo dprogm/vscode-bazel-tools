@@ -54,21 +54,27 @@ function bzlMakeQueryQuickPickItem(queryItem: BazelQueryItem): BazelQueryQuickPi
 async function bzlQuickPickQuery(query: string = '...', options?: QuickPickOptions) {
     return Window.showQuickPick(bzlQuery(query).then(deps => {
         return deps.map(bzlMakeQueryQuickPickItem);
+    }, err => {
+        Window.showQuickPick([], {
+            placeHolder: "<ERROR>"
+        })
+        Window.showErrorMessage(err.toString())
+        return [];
     }), options);
 }
 
 async function bzlQuery(query: string = '...'): Promise<BazelQueryItem[]> {
     let bzl_config = Workspace.getConfiguration('bazel')
     let excluded_packages = bzl_config.packageExcludes.join(',')
-    let child = await bzl_utils.bzlRunCommandFromShell('query '
+    let stdout = await bzl_utils.bzlRunCommandFromShell('query '
         + `"${query}"`
         + ' --noimplicit_deps'
         + ' --nohost_deps'
         + ' --deleted_packages=' + excluded_packages
         + ' --output label_kind'
-    );
+    ).then(child => child.stdout)
 
-    let stdout = child.stdout.trim();
+    stdout = stdout.trim();
     let deps = stdout ? stdout.split('\n') : [];
     let sep = ' rule ';
 
