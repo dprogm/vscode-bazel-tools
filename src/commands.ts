@@ -126,7 +126,7 @@ async function bzlQuery(query: string = '...'): Promise<BazelQueryItem[]> {
     let bzl_config = Workspace.getConfiguration('bazel')
     let excluded_packages = bzl_config.packageExcludes.join(',')
     let stdout = await bzl_utils.bzlRunCommandFromShell('query '
-        + query
+        + `"${query}"`
         + ' --noimplicit_deps'
         + ' --nohost_deps'
         + ' --deleted_packages=' + excluded_packages
@@ -185,7 +185,7 @@ export async function bzlBuildTarget(ctx: ExtensionContext) {
 }
 
 export async function bzlRunTarget(ctx: ExtensionContext) {
-    var target = await bzlQuickPickQuery('kind(".*_binary", deps("..."))', {
+    var target = await bzlQuickPickQuery('kind(.*_binary, deps(...))', {
         matchOnDescription: true,
         matchOnDetail: true,
         placeHolder: "Run bazel binary target (*_binary)"
@@ -334,7 +334,7 @@ export async function bzlCreateCppProps(ctx: ExtensionContext) {
                 ]
                 // For c_cpp_properties we are only
                 // interested in C++ targets.
-                var target = await bzlQuickPickQuery('kind("cc_.*", deps("..."))', {
+                var target = await bzlQuickPickQuery('kind(cc_.*, deps(...))', {
                     matchOnDescription: true,
                     matchOnDetail: true,
                     placeHolder: "Generate cpp properties for target ..."
