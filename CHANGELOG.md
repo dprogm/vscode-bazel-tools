@@ -9,7 +9,7 @@ information in the quick pick
 - removed table view option [#1](https://github.com/dprogm/vscode-bazel-tools/issues/1)
 - added bazel clean command
 
-**Thank you for helping me out:**
+**Thank you for contributing:**
 
 - [zaucy](https://github.com/zaucy)
 
