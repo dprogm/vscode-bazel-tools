@@ -20,7 +20,6 @@
         "onCommand:bazel.buildTarget",
         "onCommand:bazel.runTarget",
         "onCommand:bazel.clean",
-        "onCommand:bazel.showDepGraph",
         "onCommand:bazel.createCppProps",
         "workspaceContains:WORKSPACE"
     ],
@@ -40,11 +39,6 @@
             {
                 "command": "bazel.clean",
                 "title": "Clean",
-                "category": "Bazel"
-            },
-            {
-                "command": "bazel.showDepGraph",
-                "title": "Show Dependency Graph",
                 "category": "Bazel"
             },
             {

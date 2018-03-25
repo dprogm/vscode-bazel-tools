@@ -11,7 +11,7 @@ Bazel integration for Visual Studio Code. If you also want to have syntax highli
 
 * **Bazel: Create C++ Properties**: Creates a `c_cpp_properties.json` file that contains all transitive include paths starting from a root C++ target. Takes also the used toolchain into account and uses their system include directories.
 * **Bazel: Build**: Builds a target chosen from the shown label list.
-* **Bazel: Run**: Runs a target chosen from the shown label list.
+* **Bazel: Run**: Runs a *_binary target chosen from the shown label list.
 * **Bazel: Clean**: Cleans up the output directories.
 
 For each command listed above there is also a button available in the status bar.
@@ -22,7 +22,7 @@ For each command listed above there is also a button available in the status bar
 
 ## Roadmap
 
-- Add commands for bazel `clean`, `fetch` and `test` and provide a user friendly interface for them, especially for `query`. Here we could implement a graph view within vscode that visualizes the dependencies and shows up useful information for each target.
+- Add commands for bazel `fetch` and `test` and provide a user friendly interface for them, especially for `query`. Here we could implement a graph view within vscode that visualizes the dependencies and shows up useful information for each target.
 
 - Extend the language support, especially Java.
 
@@ -48,3 +48,6 @@ Let me know if you have any suggestions or if you want to contribute. I am happy
 npm install
 ```
 Then you can run it in the developer mode.
+
+**Thank you goes out to the following contributors for pushing the project forward:**
+- [zaucy](https://github.com/zaucy)
