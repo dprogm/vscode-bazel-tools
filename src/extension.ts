@@ -22,12 +22,6 @@ export async function activate(context: vscode.ExtensionContext) {
             'cmd_func' : bzl_cmds.bzlClean
         },
         {
-            'cmd_id' : 'bazel.showDepGraph',
-            'cmd_name' : 'Bazel Dependency Graph',
-            'cmd_desc' : 'Shows the dependency graph',
-            'cmd_func' : bzl_cmds.bzlShowDepGraph
-        },
-        {
             'cmd_id' : 'bazel.createCppProps',
             'cmd_name' : 'Bazel Cpp',
             'cmd_desc' : 'Create Cpp Properties',
