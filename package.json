@@ -2,7 +2,7 @@
     "name": "vscode-bazel-tools",
     "displayName": "Bazel Tools",
     "description": "Bazel integration for Visual Studio Code",
-    "version": "0.0.4",
+    "version": "0.0.6",
     "publisher": "dprogm",
     "repository": {
         "type": "git",

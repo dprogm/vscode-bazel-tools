@@ -51,7 +51,6 @@ export function deactivate() {
 function addCommandButton(cmd_id: string, cmd_name: string, cmd_desc:string) {
     var item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0)
     item.tooltip = cmd_desc
-    item.color = 'Aquamarine'
     item.text = '$(terminal) ' + cmd_name
     item.command = cmd_id
     item.show()
