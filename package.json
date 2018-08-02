@@ -2,7 +2,7 @@
     "name": "vscode-bazel-tools",
     "displayName": "Bazel Tools",
     "description": "Bazel integration for Visual Studio Code",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "publisher": "dprogm",
     "repository": {
         "type": "git",
@@ -43,7 +43,7 @@
             },
             {
                 "command": "bazel.createCppProps",
-                "title": "Create C++ Properties",
+                "title": "Create C++ Project",
                 "category": "Bazel"
             }
         ],
@@ -67,6 +67,11 @@
                     "type": "boolean",
                     "default": false,
                     "description": "When set to true labels will not be parsed"
+                },
+                "bazel.hideCommandButtons": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When set to true command buttons will not be shown"
                 }
             }
         }

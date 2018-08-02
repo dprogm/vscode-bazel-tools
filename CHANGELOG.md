@@ -1,5 +1,14 @@
 # Change Log
 
+### Version 0.0.7: August 2, 2018
+
+- made command buttons in status bar optional
+- changed command descriptions and labels
+
+### Version 0.0.6: April 18, 2018
+
+- changed color scheme for buttons
+
 ### Version 0.0.5: March 25, 2018
 
 - quick pick no longer waits until the bazel query finishes

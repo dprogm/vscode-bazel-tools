@@ -103,7 +103,7 @@ async function bzlQuery(query: string = '...'): Promise<BazelQueryItem[]> {
 function bzlDecomposeLabel(label:string) {
     var pkg_root = '//'
     var ws_index = label.search(pkg_root)
-    var ws_name = ws_index > 0 
+    var ws_name = ws_index > 0
         ? label.substr(0, ws_index)
         : 'local'
     var target_idx = label.search(':')
@@ -233,7 +233,7 @@ async function bzlCreateCppProperties(ws_root_dir: string, output_root_dir: stri
             var options: InputBoxOptions = {
                 prompt: 'There is already a c_cpp_properties.json file in '
                       + 'your workspace. Can we overwrite it?',
-                placeHolder : 'y/yes | n/no',
+                placeHolder : 'y/yes to overwrite',
             };
             var users_decision = await Window.showInputBox(options)
             if(users_decision != 'y' && users_decision != 'yes') {
