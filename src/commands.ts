@@ -123,8 +123,7 @@ export async function bzlBuildTarget(ctx: ExtensionContext) {
         placeHolder: "bazel build"
     })
     if(target) {
-        bzl_utils.bzlRunCommandInTerminal(ctx,
-        'bazel build ' + target.query_item.label)
+        bzl_utils.bzlRunCommandInTerminal(ctx, `build ${target.query_item.label}`);
     }
 }
 
@@ -135,13 +134,12 @@ export async function bzlRunTarget(ctx: ExtensionContext) {
         placeHolder: "Run bazel binary target (*_binary)"
     })
     if(target) {
-        bzl_utils.bzlRunCommandInTerminal(ctx,
-        'bazel run ' + target.query_item.label)
+        bzl_utils.bzlRunCommandInTerminal(ctx, `run ${target.query_item.label}`)
     }
 }
 
 export async function bzlClean(ctx: ExtensionContext) {
-    bzl_utils.bzlRunCommandInTerminal(ctx, 'bazel clean')
+    bzl_utils.bzlRunCommandInTerminal(ctx, 'clean')
 }
 
 // Intalls our required files into the targets
