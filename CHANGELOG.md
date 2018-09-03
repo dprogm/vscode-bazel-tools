@@ -1,5 +1,13 @@
 # Change Log
 
+### Version 0.0.8: IN PROGRESS
+
+- made bazel executable path configurable (bazel.executablePath)
+- allow to manage multi folder workspace
+- allow to create cpp project from a subdirectory of a bazel project
+- follow TypeScript guidelines https://github.com/Microsoft/TypeScript/wiki/Coding-guidelines
+
+
 ### Version 0.0.7: August 2, 2018
 
 - made command buttons in status bar optional

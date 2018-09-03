@@ -1,53 +1,56 @@
-import * as vscode from 'vscode'
-import * as bzl_cmds from './commands'
+import * as vscode from 'vscode';
+import { commands } from './commands';
 
 export async function activate(context: vscode.ExtensionContext) {
-    var available_cmds = [{
-            'cmd_id' : 'bazel.buildTarget',
-            'cmd_name' : 'Bazel Build',
-            'cmd_desc' : 'Build a bazel target',
-            'cmd_func' : bzl_cmds.bzlBuildTarget
-        },
-        {
-            'cmd_id' : 'bazel.runTarget',
-            'cmd_name' : 'Bazel Run',
-            'cmd_desc' : 'Run a bazel target',
-            'cmd_func' : bzl_cmds.bzlRunTarget
-        },
-        {
-            'cmd_id' : 'bazel.clean',
-            'cmd_name' : 'Bazel Clean',
-            'cmd_desc' : 'Delete the output directories',
-            'cmd_func' : bzl_cmds.bzlClean
-        },
-        {
-            'cmd_id' : 'bazel.createCppProps',
-            'cmd_name' : 'Bazel C++ Project',
-            'cmd_desc' : 'Create a c_cpp_properties.json project file',
-            'cmd_func' : bzl_cmds.bzlCreateCppProps
-        }
-    ]
-    var is_workspace_available = await bzl_cmds.bzlTryInit(context)
-    let bzl_config = vscode.workspace.getConfiguration('bazel')
-    available_cmds.forEach(cmd_desc => {
-        context.subscriptions.push(vscode.commands.registerCommand(cmd_desc.cmd_id,
-            () => { cmd_desc.cmd_func(context) }));
-        if(is_workspace_available && !bzl_config.get<Boolean>("hideCommandButtons")) {
-            addCommandButton(
-                cmd_desc.cmd_id,
-                cmd_desc.cmd_name,
-                cmd_desc.cmd_desc)
-        }
-    })
+    if (vscode.workspace.workspaceFolders !== undefined) {
+        var availableCommands = [
+            {
+                cmd_id: 'bazel.buildTarget',
+                cmd_name: 'Bazel Build',
+                cmd_desc: 'Build a bazel target',
+                cmd_func: commands.bzlBuildTarget
+            },
+            {
+                cmd_id: 'bazel.runTarget',
+                cmd_name: 'Bazel Run',
+                cmd_desc: 'Run a bazel target',
+                cmd_func: commands.bzlRunTarget
+            },
+            {
+                cmd_id: 'bazel.clean',
+                cmd_name: 'Bazel Clean',
+                cmd_desc: 'Delete the output directories',
+                cmd_func: commands.bzlClean
+            },
+            {
+                cmd_id: 'bazel.createCppProps',
+                cmd_name: 'Bazel C++ Project',
+                cmd_desc: 'Create a c_cpp_properties.json project file',
+                cmd_func: commands.bzlCreateCppProps
+            }
+        ];
+
+        const is_workspace_available = await commands.tryInit(context);
+        const bzl_config = vscode.workspace.getConfiguration('bazel');
+        availableCommands.forEach(cmd_desc => {
+            context.subscriptions.push(
+                vscode.commands.registerCommand(cmd_desc.cmd_id, () => {
+                    cmd_desc.cmd_func(context);
+                })
+            );
+            if (is_workspace_available && !bzl_config.get<Boolean>('hideCommandButtons')) {
+                addCommandButton(cmd_desc.cmd_id, cmd_desc.cmd_name, cmd_desc.cmd_desc);
+            }
+        });
+    }
 }
 
-export function deactivate() {
-}
+export function deactivate() {}
 
-function addCommandButton(cmd_id: string, cmd_name: string, cmd_desc:string) {
-    var item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0)
-    item.tooltip = cmd_desc
-    item.text = '$(terminal) ' + cmd_name
-    item.command = cmd_id
-    item.show()
+function addCommandButton(cmd_id: string, cmd_name: string, cmd_desc: string) {
+    let item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+    item.tooltip = cmd_desc;
+    item.text = '$(terminal) ' + cmd_name;
+    item.command = cmd_id;
+    item.show();
 }
