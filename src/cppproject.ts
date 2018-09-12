@@ -2,22 +2,36 @@ import { window as Window,InputBoxOptions } from 'vscode';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as os from 'os';
+import { utils } from './utils';
+import { CCppPropertiesSchema, Configurations } from './c_cpp_properties'
 
 export module cppproject {
+    type Configuration = Configurations[0];
+
     /**
      * Evaluates the passed (C++) descriptor files and generates the file
      * 'c_cpp_properties.json' that makes all paths available to vscode
      * under 'ws_root_dir/.vscode'.
      * 
-     * @param workspaceRootDir Root directory of the users workspace.
-     * @param bazelOutputRootDir Bazel output directory.
+     * @param bzlWs 
      * @param descriptorFiles Rule dependent descriptor data such as include paths.
      */
-    export async function createCppProperties(workspaceRootDir: string, bazelOutputRootDir: string, descriptorFiles: string[]) {
+    export async function createCppProperties(bzlWs: utils.BazelWorkspaceProperties, descriptorFiles: string[]) {
+        if (descriptorFiles.length < 1) {
+            return;
+        }
+
+        // Root directory of the users workspace.
+        const workspaceRootDir = bzlWs.workspaceFolder.uri.fsPath;
+        // Bazel output directory.
+        const bazelOutputRootDir = path.join(bzlWs.bazelWorkspacePath, `bazel-${path.basename(bzlWs.bazelWorkspacePath)}`);
+
         try {
-            let includePaths = new Set();
+            let includePaths = new Set<string>();
+            let defines = new Set<string>();
+
             for (const descriptorFile of descriptorFiles) {
-                const descriptor = require(descriptorFile);
+                const descriptor: utils.BazelDescriptor = require(descriptorFile);
                 const bzlRuleKind = descriptor.kind;
                 if (
                     bzlRuleKind == 'cc_binary'      ||
@@ -25,79 +39,118 @@ export module cppproject {
                     bzlRuleKind == 'cc_toolchain'   ||
                     bzlRuleKind == 'apple_cc_toolchain'
                 ) {
-                    let includes = descriptor.data.includes;
-                    for (let include of includes) {
+                    const targetIncludes = Array.of(
+                        ...descriptor.cc.include_dirs,
+                        ...descriptor.cc.system_include_dirs,
+                        ...descriptor.cc.quote_include_dirs
+                    );
+
+                    descriptor.cc.built_in_include_directory.forEach(value => includePaths.add(value));
+                    descriptor.cc.defines.forEach(value => defines.add(value));
+
+                    for (let include of targetIncludes) {
                         include = path.normalize(include);
                         if (include.split(path.sep)[0] != 'bazel-out') {
-                            let absIncludePath = include;
-                            if (bzlRuleKind != 'cc_toolchain' && bzlRuleKind != 'apple_cc_toolchain') {
-                                absIncludePath = path.join(bazelOutputRootDir, absIncludePath);
-                            }
+                            const absIncludePath = path.join(bazelOutputRootDir, include);
                             includePaths.add(absIncludePath);
                         }
                     }
                 } // end if cc_*
             }
-            let cpp_props_file = path.join(workspaceRootDir, '.vscode', 'c_cpp_properties.json');
-            let cpp_props_available = await fs.exists(cpp_props_file);
-            let cpp_props_create_file = true;
-            if (cpp_props_available) {
-                let options: InputBoxOptions = {
-                    prompt: 'There is already a c_cpp_properties.json file in your workspace. Can we overwrite it?',
-                    placeHolder: 'y/yes to overwrite'
-                };
-                let users_decision = await Window.showInputBox(options);
-                if (users_decision != 'y' && users_decision != 'yes') {
-                    cpp_props_create_file = false;
-                }
-            }
-            if (cpp_props_create_file) {
-                let path_arr = Array.from(includePaths);
-                let cpp_props_data: any = bzlGetBaseCppProperties();
-                for (let i = 0; i < cpp_props_data.configurations.length; i++) {
-                    cpp_props_data.configurations[i].includePath = path_arr;
-                    cpp_props_data.configurations[i].browse.path = path_arr;
-                }
-                await fs.writeFile(cpp_props_file, JSON.stringify(cpp_props_data, null, 4));
-                Window.showInformationMessage('c_cpp_properties.json file has been successfully created');
-            }
+
+            // createOrUpdateCppPropertiesFile
+            await createOrUpdateCppPropertiesFile(
+                workspaceRootDir,
+                includePaths,
+                defines,
+                require(descriptorFiles[descriptorFiles.length - 1])
+            );;
         } catch (err) {
             console.log(err.toString());
         }
     }
 
     
-    function bzlGetBaseCppProperties() {
-        var cpp_props_config_name = '';
-        var cpp_props_config_intellisensemode: 'msvc-x64' | 'gcc-x64' | 'clang-x64' | '${default}' = '${default}';
-        switch (os.platform()) {
-            case 'linux':
-                cpp_props_config_name = 'Linux';
-                cpp_props_config_intellisensemode = 'clang-x64';
-                break;
-            case 'darwin':
-                cpp_props_config_name = 'Mac';
-                cpp_props_config_intellisensemode = 'clang-x64';
-                break;
-            case 'win32':
-                cpp_props_config_name = 'Win32';
-                cpp_props_config_intellisensemode = 'msvc-x64';
-                break;
+    async function createOrUpdateCppPropertiesFile(
+        workspaceRootDir: string,
+        includePaths: Set<string>,
+        defines: Set<string>,
+        descriptor: utils.BazelDescriptor
+    ) {
+        const cppPropsFile = path.join(workspaceRootDir, '.vscode', 'c_cpp_properties.json');
+        const cppPropsExists = await fs.exists(cppPropsFile);
+        let cppProject: CCppPropertiesSchema;
+        if (cppPropsExists) {
+            cppProject = require(cppPropsFile);
+        } else {
+            cppProject = defaultCppProject();
         }
-        return {
-            configurations: [
-                {
-                    name: cpp_props_config_name,
-                    intelliSenseMode: cpp_props_config_intellisensemode,
-                    includePath: [],
-                    browse: {
-                        path: [],
-                        limitSymbolsToIncludedHeaders: true,
-                        databaseFilename: ''
-                    }
+
+        let createOrUpdateFile = true;
+        let configurationIndex = cppProject.configurations.findIndex(
+            conf => (conf.name === 'Linux' || conf.name === 'Mac' || conf.name === 'Win32')
+        );
+        if (configurationIndex !== -1) {
+            let options: InputBoxOptions = {
+                prompt: 'There is already a c_cpp_properties.json file in your workspace. Can we update it?',
+                placeHolder: 'y/yes to update'
+            };
+            const users_decision = await Window.showInputBox(options);
+            createOrUpdateFile = users_decision === 'y' || users_decision === 'yes';
+        }
+
+        if (createOrUpdateFile) {
+            let configuration: Configuration;
+            if (configurationIndex === -1) {
+                configuration = defaultCppProjectConfiguration();
+                cppProject.configurations.push(configuration);
+            } else {
+                configuration = cppProject.configurations[configurationIndex];
+            }
+
+            switch (os.platform()) {
+                case 'linux':
+                    configuration.name = 'Linux';
+                    configuration.intelliSenseMode = 'clang-x64';
+                    break;
+
+                case 'darwin':
+                    configuration.name = 'Mac';
+                    configuration.intelliSenseMode = 'clang-x64';
+                    break;
+
+                case 'win32':
+                    configuration.name = 'Win32';
+                    configuration.intelliSenseMode = 'msvc-x64';
+                    break;
+            }
+            configuration.includePath = Array.from(includePaths);
+            configuration.defines = Array.from(defines);
+            configuration.defines = descriptor.cc.defines;
+            if (configuration.browse === undefined) {
+                configuration.browse = {
+                    limitSymbolsToIncludedHeaders: true,
+                    databaseFilename: `\${workspaceFolder}/.vscode/${os.platform()}.browse.vc.db`
                 }
-            ],
-            version: 3
+            }
+
+            await fs.writeFile(cppPropsFile, JSON.stringify(cppProject, null, 4));
+            Window.showInformationMessage('c_cpp_properties.json file has been successfully created');
+        }
+    }
+
+    function defaultCppProjectConfiguration(): Configuration {
+        return {
+            name: 'unknown',
+            intelliSenseMode: '${default}',
+            browse: {}
         };
+    }
+
+    function defaultCppProject(): CCppPropertiesSchema {
+        return {
+            configurations: [],
+            version: 4
+        }
     }
 }

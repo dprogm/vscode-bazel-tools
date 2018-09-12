@@ -84,6 +84,7 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
+        "precompile": "json2ts -i res/c_cpp_properties.schema.json -o src/c_cpp_properties.d.ts",
         "compile": "tsc -p ./",
         "watch": "tsc -watch -p ./",
         "genDoc": "typedoc --mode file --includeDeclarations --excludeExternals --readme README.md --out documentation/ src/",
@@ -91,6 +92,10 @@
         "test": "npm run compile && node ./node_modules/vscode/bin/test"
     },
     "devDependencies": {
+        "typescript": "^3.0.3",
+        "vscode": "^1.1.6",
+        "eslint": "^4.11.0",
+        "json-schema-to-typescript": "^5.5.0",
         "@types/fs-extra": "^5.0.1",
         "@types/mocha": "^2.2.42",
         "@types/node": "^7.0.43",

@@ -9,4 +9,5 @@ documentation/**
 .eslintrc.json
 jsconfig.json
 tsconfig.json
+res/c_cpp_properties.schema.json
 
