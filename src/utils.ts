@@ -3,12 +3,13 @@ const child_proc = require('child-process-async');
 
 // * Execute our bazel command
 // * Make the terminal visible to the user
-export async function bzlRunCommandInTerminal(ctx: ExtensionContext, cmd:string) {
-    var term = Window.createTerminal()
-    term.sendText(cmd)
-    term.show()
+export async function bzlRunCommandInTerminal(ctx: ExtensionContext, cmd_args:string) {
+    let bazelExecutablePath = Workspace.getConfiguration("bazel").get<string>("executablePath");
+    var term = Window.createTerminal(`bazel ${cmd_args}`);
+    term.sendText(`"${bazelExecutablePath}" ${cmd_args}`);
+    term.show();
     // For disposal on deactivation
-    ctx.subscriptions.push(term)
+    ctx.subscriptions.push(term);
 }
 
 // Executes a bazel command, e.g. query or build.
@@ -18,9 +19,11 @@ export async function bzlRunCommandFromShell(cmd_args: string) {
     if(ws_folders != undefined) {
         ws_path = ws_folders[0].uri.fsPath
     }
-    return child_proc.exec('"bazel" ' + cmd_args, {
+    
+    let bazelExecutablePath = Workspace.getConfiguration("bazel").get<string>("executablePath");
+    return child_proc.exec(`"${bazelExecutablePath}" ${cmd_args}`, {
         'cwd': ws_path
-    })
+    });
 }
 
 // Checks whether the opened folder defines a bazel workspace
