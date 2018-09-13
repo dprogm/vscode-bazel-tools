@@ -340,7 +340,7 @@ export module commands {
                     //    relative paths from the descriptors and
                     //    the symlinked bazel workspace 'bazel-<root>'
                     //    where root is the current working directory.
-                    await cppproject.createCppProperties(bzlWs, descriptors);
+                    await cppproject.createCppProperties(bzlWs, target.query_item.label, descriptors);
 
                     // 3) Cleanup all temporary descriptor files
                     for (const descriptor of descriptors) {
