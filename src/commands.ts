@@ -2,6 +2,10 @@ import {
     workspace as Workspace,
     window as Window,
     commands as Commands,
+    languages,
+    Diagnostic,
+    Range,
+    Position,
     ViewColumn,
     InputBoxOptions,
     ExtensionContext,
@@ -22,6 +26,8 @@ interface BazelQueryItem {
 interface BazelQueryQuickPickItem extends QuickPickItem {
     query_item: BazelQueryItem
 }
+
+let bazelDiagnosticsCollection = languages.createDiagnosticCollection("bazel");
 
 function bzlMakeQueryQuickPickItemParsed(queryItem: BazelQueryItem) {
     let {ws, pkg, target} = bzlDecomposeLabel(queryItem.label);
@@ -52,15 +58,68 @@ function bzlMakeQueryQuickPickItem(queryItem: BazelQueryItem): BazelQueryQuickPi
 }
 
 async function bzlQuickPickQuery(query: string = '...', options?: QuickPickOptions) {
+
     return Window.showQuickPick(bzlQuery(query).then(deps => {
         return deps.map(bzlMakeQueryQuickPickItem);
-    }, err => {
-        Window.showQuickPick([], {
+    }).catch(async err => {
+        await Window.showQuickPick([], {
             placeHolder: "<ERROR>"
-        })
-        Window.showErrorMessage(err.toString())
+        });
         return [];
     }), options);
+}
+
+function bzlClearQueryDiagnostics() {
+    bazelDiagnosticsCollection.clear();
+}
+
+function bzlQueryErrorDiagnostics(error: Error) {
+    let errorStr = error.toString();
+    let errors = errorStr.split("\n");
+
+    let errorStart = "ERROR:";
+    for(let error of errors) {
+        if(error.startsWith(errorStart)) {
+            error = error.substr(errorStart.length)
+
+            let slashIndex = error.indexOf("/")
+            let colonIndex = error.indexOf(":")
+            let drivePrefix = ''
+            if(colonIndex > -1 && colonIndex < slashIndex) {
+                drivePrefix = error.substr(0, colonIndex+1).trim()
+                colonIndex = error.indexOf(":", colonIndex+1)
+            }
+
+            let [lineStr, colStr] = error.substr(colonIndex+1).split(":")
+
+            // Bazel returns non-zero based
+            let line = parseInt(lineStr)-1
+            let col = parseInt(colStr)-1
+
+            let startPosition = new Position(line, col)
+            let endPosition = new Position(line, col)
+            let range = new Range(startPosition, endPosition)
+            
+            let errorMessage = error.substr(
+                colonIndex + lineStr.length + colStr.length + 3
+            ).trim()
+
+            let diagnostic = new Diagnostic(range, errorMessage)
+            let filePath = drivePrefix + error.substring(
+                slashIndex, colonIndex
+            )
+            let fileUri = Uri.file(filePath)
+
+            let {dispose} = Workspace.onDidSaveTextDocument(txtDoc => {
+                dispose()
+                bzlQuery('...')
+            })
+
+            let diagnostics = bazelDiagnosticsCollection.get(fileUri) || []
+            diagnostics.push(diagnostic);
+            bazelDiagnosticsCollection.set(fileUri, diagnostics)
+        }
+    }
 }
 
 async function bzlQuery(query: string = '...'): Promise<BazelQueryItem[]> {
@@ -72,7 +131,15 @@ async function bzlQuery(query: string = '...'): Promise<BazelQueryItem[]> {
         + ' --nohost_deps'
         + ' --deleted_packages=' + excluded_packages
         + ' --output label_kind'
-    ).then(child => child.stdout)
+    )
+    .then(child => {
+        bzlClearQueryDiagnostics()
+        return child.stdout
+    })
+    .catch((error: Error) => {
+        bzlQueryErrorDiagnostics(error)
+        return Promise.reject(error)
+    })
 
     stdout = stdout.trim();
     let deps = stdout ? stdout.split('\n') : [];
