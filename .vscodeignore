@@ -3,6 +3,7 @@
 test/**
 out/test/**
 src/**
+documentation/**
 **/*.map
 .gitignore
 .eslintrc.json

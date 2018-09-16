@@ -21,7 +21,8 @@
         "onCommand:bazel.runTarget",
         "onCommand:bazel.clean",
         "onCommand:bazel.createCppProps",
-        "workspaceContains:WORKSPACE"
+        "workspaceContains:WORKSPACE",
+        "workspaceContains:BUILD"
     ],
     "main": "./out/src/extension",
     "contributes": {
@@ -85,16 +86,18 @@
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
         "watch": "tsc -watch -p ./",
+        "genDoc": "typedoc --mode file --includeDeclarations --excludeExternals --readme README.md --out documentation/ src/",
         "postinstall": "node ./node_modules/vscode/bin/install",
         "test": "npm run compile && node ./node_modules/vscode/bin/test"
     },
     "devDependencies": {
-        "typescript": "^3.0.3",
-        "vscode": "^1.1.6",
-        "eslint": "^4.11.0",
         "@types/fs-extra": "^5.0.1",
+        "@types/mocha": "^2.2.42",
         "@types/node": "^7.0.43",
-        "@types/mocha": "^2.2.42"
+        "eslint": "^4.11.0",
+        "typedoc": "^0.12.0",
+        "typescript": "^3.0.3",
+        "vscode": "^1.1.6"
     },
     "dependencies": {
         "child-process-async": "^1.0.1",
