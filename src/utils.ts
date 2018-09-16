@@ -7,13 +7,17 @@ export namespace utils {
         readonly aspectPath: string;
     }
 
-    // Maps bazel rules that belong together to their
-    // target programming language. If a rule is not
-    // used for compiling any language but aims to
-    // fulfill a more general task then we use the
-    // rule kind as the return value.
-    // TODO: Complete this map.
-    export function ruleKindToLanguage(rule_kind: string) {
+    /**
+     * Maps bazel rules that belong together to their
+     * target programming language. If a rule is not
+     * used for compiling any language but aims to
+     * fulfill a more general task then we use the
+     * rule kind as the return value.
+     * @param rule_kind 
+     * @returns
+     * @todo Complete this map.
+     */
+    export function ruleKindToLanguage(rule_kind: string): string {
         rule_kind = rule_kind.trim();
         let lang = rule_kind;
         switch (rule_kind) {
@@ -54,14 +58,19 @@ export namespace utils {
         pkg: '<ERROR>',
         target: '<ERROR>'
     };
-    // Split the bazel label into its atomic parts:
-    // workspace name, package and target (name)
-    //
-    // Pattern: @ws_name//pkg:target
-    //
-    // The current workspace is referred to as the local
-    // workspace in contrast with remote workspaces that
-    // are identified by the prefixed at sign.
+
+    /**
+     * Split the bazel label into its atomic parts:
+     * workspace name, package and target (name)
+     *
+     * Pattern: @ws_name//pkg:target
+     *
+     * The current workspace is referred to as the local
+     * workspace in contrast with remote workspaces that
+     * are identified by the prefixed at sign.
+     * @param label 
+     * @returns
+     */
     export function decomposeLabel(label: string) {
         let decomposedLabel = DECOMPOSE_LABEL_ERROR;
         let matches = DECOMPOSE_LABEL_REGEX.exec(label)

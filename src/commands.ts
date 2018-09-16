@@ -28,12 +28,23 @@ export module commands {
         readonly item: BazelWorkspace;
     }
 
+    /**
+     * Bazel workspace information.
+     */
     class BazelWorkspace implements utils.BazelWorkspaceProperties{
+        // VSCode workspace folder reference.
         public readonly workspaceFolder: WorkspaceFolder;
+        // Path to the bazel WORKSPACE file.
         public readonly bazelWorkspacePath: string;
+        // Path to the installed aspect file to generate descriptor files.
         public readonly aspectPath: string;
-        private _terminal: Terminal | null = null;
+        // Associated terminal to the workspace.
+        private terminal: Terminal | null = null;
 
+        /**
+         * Constructor.
+         * @param properties Properties information to initialize the bazel workspace.
+         */
         constructor(properties: utils.BazelWorkspaceProperties) {
             this.workspaceFolder = properties.workspaceFolder;
             this.bazelWorkspacePath = properties.bazelWorkspacePath,
@@ -41,63 +52,75 @@ export module commands {
         }
 
         /**
-         * Determine if a terminal is already associated with workspace
-         * @returns true if this workspace has already a terminal, false otherwise
+         * Determine if a terminal is already associated with this workspace.
+         * @returns true if this workspace has already a terminal, false otherwise.
          */
         public hasTerminal(): boolean {
-            return this._terminal !== null;
+            return this.terminal !== null;
         }
 
         /**
-         * This function must be call only on a terminal deletion
+         * This function must be call only on a terminal deletion.
          */
         public resetTerminal() {
-            return this._terminal = null;
+            return this.terminal = null;
         }
 
         /**
-         * Create or get the associated terminal of the current bazel workspace
-         * @returns the associated terminal
+         * Create or get the associated terminal of the current bazel workspace.
+         * @returns the associated terminal.
          */
         public getTerminal(): Terminal {
-            if (this._terminal === null) {
-                this._terminal = Window.createTerminal({
+            if (this.terminal === null) {
+                this.terminal = Window.createTerminal({
                     name: `bazel - ${this.workspaceFolder.name}`,
                     cwd: this.workspaceFolder.uri.fsPath
                 });
                 // For disposal on deactivation
-                extensionContext.subscriptions.push(this._terminal);
+                extensionContext.subscriptions.push(this.terminal);
             }
-            return this._terminal;
+            return this.terminal;
         }
     }
 
-    // Extensions source folder that contains
-    // all required runtime dependencies such
-    // as the aspects file
+    /**
+     * Extensions source folder that contains
+     * all required runtime dependencies such
+     * as the aspects file.
+     */
     const BAZEL_EXT_RES_BASE_PATH = 'res';
-    // The destination folder where all runtime
-    // dependencies land that are required to be
-    // in the target source tree.
+    /**
+     * The destination folder where all runtime
+     * dependencies land that are required to be
+     * in the target source tree.
+     */
     const BAZEL_EXT_DEST_BASE_PATH = '.vscode/.vs_code_bazel_build';
-    // Bazel requires a package for the aspect.
-    // This file will be empty.
+    /**
+     * Bazel requires a package for the aspect.
+     * This file will be empty.
+     */
     const BAZEL_BUILD_FILE = 'BUILD';
-    // Required aspect for introspecting the
-    // bazel dependency graph.
+    /**
+     * Required aspect for introspecting the
+     * bazel dependency graph.
+     */
     const BAZEL_ASPECT_FILE = 'vs_code_aspect.bzl';
 
-    const WORKSPACE_FILE:string = 'WORKSPACE'
-    const BAZEL_FILES: string[] = ['BUILD', 'BUILD.bazel', WORKSPACE_FILE];
+    /** Bazel workspace file name. */
+    const BAZEL_WORKSPACE_FILE:string = 'WORKSPACE'
+    /** Bazel valid build file names. */
+    const BAZEL_BUILD_FILES: string[] = ['BUILD', 'BUILD.bazel'];
 
+    /** When set to true labels will not be parsed. */
     let rawLabelDisplay: boolean;
+    /** Collection of all the initialize bazel workspace. */
     let bazelWorkspaces: BazelWorkspace[] = [];
     let extensionContext: ExtensionContext;
 
     /**
-     * 
-     * @param ctx 
-     * @returns
+     * Try to initialize the extension.
+     * @param ctx Extension context of VSCode
+     * @returns true if the the plugin has been successfully initialize false otherwise
      */
     export async function tryInit(ctx: ExtensionContext): Promise<boolean> {
         let initialized = false;
@@ -107,10 +130,11 @@ export module commands {
             Workspace.onDidChangeWorkspaceFolders(onChangeWorkspaceFolders);
 
             for (const workspaceFolder of Workspace.workspaceFolders) {
-                initialized = tryInitWorkspace(workspaceFolder) || initialized;
+                initialized = await tryInitWorkspace(workspaceFolder) || initialized;
             } // end for workspace
         }
 
+        // If all go right init the other modules
         if (initialized) {
             init();
             bazel.init();
@@ -119,7 +143,13 @@ export module commands {
         return initialized;
     }
 
-    function init() {
+    /**
+     * This methods must be call if the VSCode workspace validate all the
+     * requirement. It will register callback and load the current extension
+     * configuration.
+     * @see {@link tryInit}
+     */
+    function init(): void {
         Workspace.onDidChangeConfiguration(configurationChangeEvent => {
             if (configurationChangeEvent.affectsConfiguration('bazel')) {
                 loadConfiguration(Workspace.getConfiguration('bazel'));
@@ -136,14 +166,26 @@ export module commands {
         loadConfiguration(Workspace.getConfiguration('bazel'));
     }
 
-    function tryInitWorkspace(workspaceFolder: WorkspaceFolder): boolean {
+    /**
+     * Try to initialize the extension for a given workspace folder.
+     * 
+     * This function will check in the following order:
+     * * if the given workspace contains any bazel WORKSPACE file
+     *   ({@link BAZEL_WORKSPACE_FILE}). 
+     * * if the given workspace contains any bazel BUILD file
+     *   ({@link BAZEL_BUILD_FILES}).
+     * @param workspaceFolder VSCode workspace folder.
+     * @returns True if the workspace folder fill the condition, false otherwise.
+     * @see {@link tryInitFromBuildFile}
+     */
+    async function tryInitWorkspace(workspaceFolder: WorkspaceFolder): Promise<boolean> {
         let initialized = false;
 
-        let workspacePath = path.join(workspaceFolder.uri.fsPath, WORKSPACE_FILE);
+        let workspacePath = path.join(workspaceFolder.uri.fsPath, BAZEL_WORKSPACE_FILE);
         if (fs.existsSync(workspacePath)) {
             // The workspace contains a WORKSPACE file init bazel
-            setupWorkspace(workspaceFolder.uri.fsPath, extensionContext.extensionPath);
-            addBazelWorkspace(
+            await setupWorkspace(workspaceFolder.uri.fsPath, extensionContext.extensionPath);
+            bazelWorkspaces.push(
                 new BazelWorkspace({
                     workspaceFolder: workspaceFolder,
                     bazelWorkspacePath: workspaceFolder.uri.fsPath,
@@ -154,39 +196,53 @@ export module commands {
         } else {
             // The workspace does not contains a WORKSPACE file try 
             // to found if there is any BUILD file
-            initialized = tryInitFromBuildFile(workspaceFolder);
+            initialized = await tryInitFromBuildFile(workspaceFolder);
         }
 
         return initialized;
     }
 
-    function tryInitFromBuildFile(workspaceFolder: WorkspaceFolder): boolean {
+    /**
+     * Try to find any bazel BUILD ({@link BAZEL_BUILD_FILES}) file in the
+     * workspace folder. If one is found then it search for a WORKSPACE file
+     * in the parent directories.
+     * @param workspaceFolder VSCode workspace folder.
+     * @returns True if a bazel BUILD and it's associated WORKSPACE file has been 
+     * found, false otherwise.
+     */
+    async function tryInitFromBuildFile(workspaceFolder: WorkspaceFolder): Promise<boolean> {
         let initialized = false;
 
-        for (const buildFile of BAZEL_FILES) {
-            let buildPath = path.join(workspaceFolder.uri.fsPath, buildFile);
+        for (const buildFile of BAZEL_BUILD_FILES) {
+            const buildPath = path.join(workspaceFolder.uri.fsPath, buildFile);
+            // Check if the bazel build file exists
             if (fs.existsSync(buildPath)) {
-                // A build file has been found try to found the WORKSPACE path
-                let wsPath = path.normalize(path.join(workspaceFolder.uri.fsPath, '..'));
-                let preciousWsPath: string | null = null;
-                while ((preciousWsPath !== wsPath) && (!fs.existsSync(path.join(wsPath, WORKSPACE_FILE)))) {
-                    preciousWsPath = wsPath;
-                    wsPath = path.normalize(path.join(wsPath, '..'));
+                // A build file has been found try to found the WORKSPACE file path
+                // by searching recursively in the parents directory.
+                let wsPath = workspaceFolder.uri.fsPath;
+                let lastIndex = wsPath.lastIndexOf(path.sep);
+                let workspaceFileFound = false;
+                while ((lastIndex !== -1) && (!workspaceFileFound)) {
+                    wsPath = wsPath.substr(0, lastIndex);
+                    lastIndex = wsPath.lastIndexOf(path.sep);
+                    workspaceFileFound = fs.existsSync(path.join(wsPath, BAZEL_WORKSPACE_FILE));
                 }
-                if (wsPath !== preciousWsPath) {
-                    setupWorkspace(workspaceFolder.uri.fsPath, extensionContext.extensionPath);
-                    addBazelWorkspace(new BazelWorkspace({
-                        workspaceFolder: workspaceFolder,
-                        bazelWorkspacePath: wsPath,
-                        aspectPath: path.join(
-                            workspaceFolder.uri.fsPath.replace(`${wsPath}${path.sep}`, ''),
-                            BAZEL_EXT_DEST_BASE_PATH, 
-                            BAZEL_ASPECT_FILE
-                        )
-                    }));
+                if (workspaceFileFound) {
+                    await setupWorkspace(workspaceFolder.uri.fsPath, extensionContext.extensionPath);
+                    bazelWorkspaces.push(
+                        new BazelWorkspace({
+                            workspaceFolder: workspaceFolder,
+                            bazelWorkspacePath: wsPath,
+                            aspectPath: path.join(
+                                workspaceFolder.uri.fsPath.replace(`${wsPath}${path.sep}`, ''),
+                                BAZEL_EXT_DEST_BASE_PATH,
+                                BAZEL_ASPECT_FILE
+                            )
+                        })
+                    );
                     initialized = true;
                 } else {
-                    Window.showInformationMessage('Bazel BUILD file found but no WORKSPACE');
+                    Window.showInformationMessage('Bazel BUILD file has been found in the workspace directory, but cannot found any WORKSPACE file in it or in the parent one.');
                 }
             }
         }
@@ -194,6 +250,12 @@ export module commands {
         return initialized;
     }
 
+    /**
+     * @callback vscode.workspace.onDidChangeWorkspaceFolders
+     * On VSCode workspace change remove the removed workspace and try to init
+     * the added one.
+     * @param workspaceFoldersEvent An event describing a change to the set of workspace folders.
+     */
     function onChangeWorkspaceFolders(workspaceFoldersEvent: WorkspaceFoldersChangeEvent): void {
         for (const workspaceFolder of workspaceFoldersEvent.added) {
             tryInitWorkspace(workspaceFolder);
@@ -207,41 +269,56 @@ export module commands {
         }
     }
 
-    function addBazelWorkspace(ws: BazelWorkspace): void {
-        bazelWorkspaces.push(ws);
-    }
-
-    // Installs our required files into the targets
-    // source tree under '.vscode'.
+    /**
+     * Install or update the required files into the targets source tree under '.vscode'.
+     * @param wsRoot VSCode workspace root directory.
+     * @param extensionPath Path to the extension.
+     */
     async function setupWorkspace(wsRoot: string, extensionPath: string): Promise<void> {
         try {
-            let exists = await fs.exists(path.join(wsRoot, BAZEL_EXT_DEST_BASE_PATH, BAZEL_BUILD_FILE));
+            const exists = await fs.exists(path.join(wsRoot, BAZEL_EXT_DEST_BASE_PATH, BAZEL_BUILD_FILE));
+            
+            const workspaceDestinationPath = path.join(wsRoot, BAZEL_EXT_DEST_BASE_PATH);
+            const bazelSrcAspectPath = path.join(extensionPath, BAZEL_EXT_RES_BASE_PATH, BAZEL_ASPECT_FILE);
+            const bazelDestAspectPath = path.join(workspaceDestinationPath, BAZEL_ASPECT_FILE);
+            
             if (!exists) {
-                let workspaceDestinationPath = path.join(wsRoot, BAZEL_EXT_DEST_BASE_PATH);
                 await fs.mkdirs(workspaceDestinationPath);
                 await fs.writeFile(path.join(workspaceDestinationPath, BAZEL_BUILD_FILE), '');
-                await fs.copy(
-                    path.join(extensionPath, BAZEL_EXT_RES_BASE_PATH, BAZEL_ASPECT_FILE),
-                    path.join(workspaceDestinationPath, BAZEL_ASPECT_FILE)
-                );
+                await fs.copy(bazelSrcAspectPath, bazelDestAspectPath, {preserveTimestamps: true});
+            } else {
+                const srcStat = await fs.stat(bazelSrcAspectPath);
+                const destStat = await fs.stat(bazelDestAspectPath);
+
+                if (srcStat.mtime.getTime() !== destStat.mtime.getTime()) {
+                    await fs.copy(bazelSrcAspectPath, bazelDestAspectPath, {overwrite: true, preserveTimestamps: true});
+                }
             }
         } catch(err) {
             Window.showErrorMessage('Error during file i/o ' + err.toString());
         }
     }
 
+    /**
+     * Initialize the module with the user configuration.
+     * @param bazelConfig New configuration to load.
+     */
     function loadConfiguration(bazelConfig: WorkspaceConfiguration): void {
         rawLabelDisplay = bazelConfig.get<boolean>('rawLabelDisplay') || false;
     }
 
-    // * Let the user choose a root target from which we
-    //   are going to apply the aspect and gather all
-    //   cxx include paths
-    //
-    // * Create the vs code file 'c_cpp_properties.json'
-    //   into the destination folder and append the found
-    //   include paths to that file under the section
-    //   'includePath' as well as 'browse.path'
+    /**
+     * * Let the user choose a root target from which we
+     *   are going to apply the aspect and gather all
+     *   cxx include paths
+     * 
+     * * Create the vs code file 'c_cpp_properties.json'
+     *   into the destination folder and append the found
+     *   include paths to that file under the section
+     *   'includePath' as well as 'browse.path'
+     * 
+     * @param ctx Extension context
+     */
     export async function bzlCreateCppProps(ctx: ExtensionContext) : Promise<void> {
         try {
             const bzlWs = await pickWorkspace();
@@ -280,6 +357,10 @@ export module commands {
         }
     }
 
+    /**
+     * 
+     * @param ctx 
+     */
     export async function bzlBuildTarget(ctx: ExtensionContext) {
         const bzlWs = await pickWorkspace();
         if (bzlWs !== undefined) {
@@ -297,6 +378,10 @@ export module commands {
         }
     }
 
+    /**
+     * 
+     * @param ctx 
+     */
     export async function bzlRunTarget(ctx: ExtensionContext) {
         const bzlWs = await pickWorkspace();
         if (bzlWs !== undefined) {
@@ -314,6 +399,10 @@ export module commands {
         }
     }
 
+    /**
+     * 
+     * @param ctx 
+     */
     export async function bzlClean(ctx: ExtensionContext) {
         let bzlWs = await pickWorkspace();
         if (bzlWs !== undefined) {
@@ -323,23 +412,32 @@ export module commands {
         }
     }
 
+    /**
+     * 
+     * @param ctx 
+     */
     export async function bzlShowDepGraph(ctx: ExtensionContext) {
         let uri = Uri.parse('bazel_dep_graph://');
         Commands.executeCommand('vscode.previewHtml', uri, ViewColumn.Two, 'Graph View');
     }
 
+    /**
+     * 
+     * @returns
+     */
     async function pickWorkspace(): Promise<BazelWorkspace | undefined> {
         if (bazelWorkspaces.length === 1) {
             // If there only one workspace no problem continue
             return new Promise<BazelWorkspace>((resolve, reject) => {
                 resolve(bazelWorkspaces[0]);
             });
-        } else {
+        } else if (bazelWorkspaces.length > 0) {
             // Otherwise the user must choose the workspace to work to
             return await Window.showQuickPick(
                 bazelWorkspaces.map(
                     ws => <BazelWorkspaceQuickPickItem> {
                         label: ws.workspaceFolder.name,
+                        description: ws.workspaceFolder.uri.fsPath,
                         item: ws
                     }
                 ),
@@ -347,8 +445,16 @@ export module commands {
                 placeHolder: 'Workspace folder'
             }).then(item => item ? item.item : undefined);
         }
+        return undefined;
     }
 
+    /**
+     * 
+     * @param bzlWs 
+     * @param query 
+     * @param options 
+     * @returns
+     */
     function quickPickQuery(bzlWs: BazelWorkspace, query: string = '...', options?: QuickPickOptions): Thenable<BazelQueryQuickPickItem | undefined> {
         let quickPickQuery = bazel.queryBzl(bzlWs.workspaceFolder.uri.fsPath, query).then(
             queryItems => {
@@ -368,6 +474,11 @@ export module commands {
         return Window.showQuickPick(quickPickQuery, options);
     }
 
+    /**
+     * 
+     * @param queryItem 
+     * @returns
+     */
     function rawQuickPickItem(queryItem: bazel.BazelQueryItem): BazelQueryQuickPickItem {
         return {
             label: queryItem.label,
@@ -377,6 +488,11 @@ export module commands {
         };
     }
 
+    /**
+     * 
+     * @param queryItem 
+     * @returns
+     */
     function parseQuickPickItem(queryItem: bazel.BazelQueryItem): BazelQueryQuickPickItem {
         const { ws, pkg, target } = utils.decomposeLabel(queryItem.label);
         const lang = utils.ruleKindToLanguage(queryItem.kind);
