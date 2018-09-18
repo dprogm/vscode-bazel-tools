@@ -94,7 +94,7 @@ export module bazel {
             
             return queries;
         }).catch((error: Error) => {
-            bzlQueryErrorDiagnostics(wd, error);
+            parseErrorDiagnostics(wd, error);
             return Promise.reject(error);
         });
     }
@@ -169,41 +169,34 @@ export module bazel {
         return child_proc.exec(`"${bazelExecutablePath}" ${args.join(' ')}`, { cwd: wd });
     }
 
-    function bzlQueryErrorDiagnostics(wd: string, error: Error) {
-        let errorStr = error.toString();
-        let errors = errorStr.split("\n");
-        let errorStart = "ERROR:";
+    /**
+     * 
+     * @param wd 
+     * @param error 
+     */
+    function parseErrorDiagnostics(wd: string, error: Error) {
+        const errors = error.toString().split("\n");
+        const errorRegex = /ERROR: ((\w:)?([^:]*)):(\d+):(\d+): (.*)/;
+
         for(let error of errors) {
-            if(error.startsWith(errorStart)) {
-                error = error.substr(errorStart.length);
-                let slashIndex = error.indexOf("/");
-                let colonIndex = error.indexOf(":");
-                let drivePrefix = '';
-                if(colonIndex > -1 && colonIndex < slashIndex) {
-                    drivePrefix = error.substr(0, colonIndex+1).trim();
-                    colonIndex = error.indexOf(":", colonIndex+1);
-                }
-                let [lineStr, colStr] = error.substr(colonIndex+1).split(":");
-                // Bazel returns non-zero based
-                let line = parseInt(lineStr)-1;
-                let col = parseInt(colStr)-1;
-                let startPosition = new Position(line, col);
-                let endPosition = new Position(line, col);
-                let range = new Range(startPosition, endPosition);
-                
-                let errorMessage = error.substr(
-                    colonIndex + lineStr.length + colStr.length + 3
-                ).trim();
-                let diagnostic = new Diagnostic(range, errorMessage);
-                let filePath = drivePrefix + error.substring(
-                    slashIndex, colonIndex
-                );
-                let fileUri = Uri.file(filePath)
+            let match: RegExpExecArray | null;
+            if((match = errorRegex.exec(error.trim())) !== null) {
+                let path        = match[1];
+                let line        = parseInt(match[4]);
+                let column      = parseInt(match[5]);
+                let message     = match[6];
+
+                let position   = new Position(line, column);
+                let range      = new Range(position, position);
+                let diagnostic = new Diagnostic(range, message);
+                let fileUri    = Uri.file(path);
+
                 let {dispose} = Workspace.onDidSaveTextDocument(txtDoc => {
                     bazelDiagnosticsCollection.clear();
                     dispose();
                     bazel.queryBzl(wd, '...');
-                })
+                });
+
                 let diagnostics = bazelDiagnosticsCollection.get(fileUri) || [];
                 diagnostics.push(diagnostic);
                 bazelDiagnosticsCollection.set(fileUri, diagnostics);
