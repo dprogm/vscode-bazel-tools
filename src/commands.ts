@@ -3,6 +3,7 @@ import {
     window as Window,
     commands as Commands,
     QuickPickOptions,
+    Uri,
     QuickPickItem,
     ExtensionContext,
     WorkspaceConfiguration,
@@ -15,7 +16,6 @@ import { bazel } from './bazel';
 import { cppproject } from './cppproject';
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import { Uri } from 'vscode';
 import { utils } from './utils';
 
 
@@ -463,13 +463,12 @@ export module commands {
                 } else {
                     return queryItems.map(parseQuickPickItem);
                 }
-            },
-            err => {
-                Window.showQuickPick([], {placeHolder: '<ERROR>'});
-                Window.showErrorMessage(err.toString());
-                return [];
             }
-        );
+        ).catch((err: Error) => {
+            Window.showQuickPick([], {placeHolder: '<ERROR>'});
+            Window.showErrorMessage("Failed to query bazel, take a look in the Problems view.");
+            return [];
+        });
 
         return Window.showQuickPick(quickPickQuery, options);
     }

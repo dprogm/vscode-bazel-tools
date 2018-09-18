@@ -1,11 +1,17 @@
 import {
     workspace as Workspace,
     WorkspaceConfiguration,
-    Terminal
+    Terminal,
+    DiagnosticCollection,
+    languages,
+    Diagnostic,
+    Position,
+    Range
 } from 'vscode';
 const child_proc = require('child-process-async');
 import * as path from 'path';
 import { utils } from './utils';
+import { Uri } from 'vscode';
 
 
 export module bazel {
@@ -20,6 +26,8 @@ export module bazel {
     let bazelExecutablePath: string;
     /** Packages that should not be considered during querying. */
     let excludedPackages: string[];
+    /**  */
+    let bazelDiagnosticsCollection: DiagnosticCollection;
 
     /**
      * This function must be call in the extension initialization.
@@ -32,6 +40,7 @@ export module bazel {
             }
         });
         loadConfiguration(Workspace.getConfiguration('bazel'));
+        bazelDiagnosticsCollection = languages.createDiagnosticCollection("bazel");
     }
 
 
@@ -50,7 +59,7 @@ export module bazel {
      * @param query Bazel query to execute.
      * @returns List of all rules that have been found.
      */
-    export async function queryBzl(wd: string, query: string = '...'): Promise<BazelQueryItem[]> {
+    export function queryBzl(wd: string, query: string = '...'): Promise<BazelQueryItem[]> {
         const excludedPackagesStr = excludedPackages.join(',');
         // Execute the bazel query
         let proc = exec(
@@ -66,23 +75,28 @@ export module bazel {
         );
 
         // Get the bazel query output
-        let stdout:string = await proc.then(child => child.stdout);
-        stdout = stdout.trim();
+        return proc.then(child => {
+            bazelDiagnosticsCollection.clear();
 
-        let dependencies = stdout ? stdout.split('\n') : [];
-        let separator = ' rule ';
-
-        // Search for all rule and return it
-        let queries = dependencies.map((dependency: string): BazelQueryItem => {
-            let idx = dependency.search(separator);
-
-            return {
-                kind: dependency.substr(0, idx),
-                label: dependency.substr(idx + separator.length)
-            };
+            const stdout:string = child.stdout.trim();
+            const dependencies = stdout ? stdout.split('\n') : [];
+            const separator = ' rule ';
+    
+            // Search for all rule and return it
+            const queries = dependencies.map((dependency: string): BazelQueryItem => {
+                const idx = dependency.search(separator);
+    
+                return {
+                    kind: dependency.substr(0, idx),
+                    label: dependency.substr(idx + separator.length)
+                };
+            });
+            
+            return queries;
+        }).catch((error: Error) => {
+            bzlQueryErrorDiagnostics(wd, error);
+            return Promise.reject(error);
         });
-        
-        return queries;
     }
 
     /**
@@ -148,11 +162,53 @@ export module bazel {
     /**
      * Execute a bazel command with the following args from the specified directory.
      * @param args Arguments for the bazel command.
-     * @param ws Working directory from where the bazel command must be execute.
+     * @param wd Working directory from where the bazel command must be execute.
      * @returns The bazel stderr and stdout.
      */
-    function exec(args: string[], ws: string): Promise<{ stdout:string, stderr:string }> {
-        return child_proc.exec(`"${bazelExecutablePath}" ${args.join(' ')}`, { cwd: ws });
+    function exec(args: string[], wd: string): Promise<{ stdout:string, stderr:string }> {
+        return child_proc.exec(`"${bazelExecutablePath}" ${args.join(' ')}`, { cwd: wd });
+    }
+
+    function bzlQueryErrorDiagnostics(wd: string, error: Error) {
+        let errorStr = error.toString();
+        let errors = errorStr.split("\n");
+        let errorStart = "ERROR:";
+        for(let error of errors) {
+            if(error.startsWith(errorStart)) {
+                error = error.substr(errorStart.length);
+                let slashIndex = error.indexOf("/");
+                let colonIndex = error.indexOf(":");
+                let drivePrefix = '';
+                if(colonIndex > -1 && colonIndex < slashIndex) {
+                    drivePrefix = error.substr(0, colonIndex+1).trim();
+                    colonIndex = error.indexOf(":", colonIndex+1);
+                }
+                let [lineStr, colStr] = error.substr(colonIndex+1).split(":");
+                // Bazel returns non-zero based
+                let line = parseInt(lineStr)-1;
+                let col = parseInt(colStr)-1;
+                let startPosition = new Position(line, col);
+                let endPosition = new Position(line, col);
+                let range = new Range(startPosition, endPosition);
+                
+                let errorMessage = error.substr(
+                    colonIndex + lineStr.length + colStr.length + 3
+                ).trim();
+                let diagnostic = new Diagnostic(range, errorMessage);
+                let filePath = drivePrefix + error.substring(
+                    slashIndex, colonIndex
+                );
+                let fileUri = Uri.file(filePath)
+                let {dispose} = Workspace.onDidSaveTextDocument(txtDoc => {
+                    bazelDiagnosticsCollection.clear();
+                    dispose();
+                    bazel.queryBzl(wd, '...');
+                })
+                let diagnostics = bazelDiagnosticsCollection.get(fileUri) || [];
+                diagnostics.push(diagnostic);
+                bazelDiagnosticsCollection.set(fileUri, diagnostics);
+            }
+        }
     }
 }
 
