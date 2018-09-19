@@ -2,402 +2,506 @@ import {
     workspace as Workspace,
     window as Window,
     commands as Commands,
-    languages,
-    Diagnostic,
-    Range,
-    Position,
-    ViewColumn,
-    InputBoxOptions,
-    ExtensionContext,
+    QuickPickOptions,
     Uri,
     QuickPickItem,
-    QuickPickOptions
-} from 'vscode'
-import * as fs from 'fs-extra'
-import * as path from 'path'
-import * as bzl_defines from './defines'
-import * as bzl_utils from './utils'
+    ExtensionContext,
+    WorkspaceConfiguration,
+    Terminal,
+    WorkspaceFoldersChangeEvent,
+    WorkspaceFolder,
+    ViewColumn
+} from 'vscode';
+import { bazel } from './bazel';
+import { cppproject } from './cppproject';
+import * as path from 'path';
+import * as fs from 'fs-extra';
+import { utils } from './utils';
 
-interface BazelQueryItem {
-    kind: string
-    label: string
-}
 
-interface BazelQueryQuickPickItem extends QuickPickItem {
-    query_item: BazelQueryItem
-}
-
-let bazelDiagnosticsCollection = languages.createDiagnosticCollection("bazel");
-
-function bzlMakeQueryQuickPickItemParsed(queryItem: BazelQueryItem) {
-    let {ws, pkg, target} = bzlDecomposeLabel(queryItem.label);
-    let lang = bzl_defines.bzlTranslateRuleKindToLanguage(queryItem.kind)
-
-    return {
-        label: target,
-        description: "",
-        detail: `${lang} | ws{${ws}} | pkg{${pkg}}`,
-        query_item: queryItem
+export module commands {
+    interface BazelQueryQuickPickItem extends QuickPickItem {
+        readonly query_item: bazel.BazelQueryItem;
     }
-}
 
-function bzlMakeQueryQuickPickItemParsedRaw(queryItem: BazelQueryItem) {
-    return {
-        label: queryItem.label,
-        description: "",
-        detail: queryItem.kind,
-        query_item: queryItem
+    interface BazelWorkspaceQuickPickItem extends QuickPickItem {
+        readonly item: BazelWorkspace;
     }
-}
 
-function bzlMakeQueryQuickPickItem(queryItem: BazelQueryItem): BazelQueryQuickPickItem {
-    let bzl_config = Workspace.getConfiguration('bazel')
-    return bzl_config.get('rawLabelDisplay') ?
-        bzlMakeQueryQuickPickItemParsedRaw(queryItem) :
-        bzlMakeQueryQuickPickItemParsed(queryItem)
-}
+    /**
+     * Bazel workspace information.
+     */
+    class BazelWorkspace implements utils.BazelWorkspaceProperties{
+        // VSCode workspace folder reference.
+        public readonly workspaceFolder: WorkspaceFolder;
+        // Path to the bazel WORKSPACE file.
+        public readonly bazelWorkspacePath: string;
+        // Path to the installed aspect file to generate descriptor files.
+        public readonly aspectPath: string;
+        // Associated terminal to the workspace.
+        private terminal: Terminal | null = null;
 
-async function bzlQuickPickQuery(query: string = '...', options?: QuickPickOptions) {
+        /**
+         * Constructor.
+         * @param properties Properties information to initialize the bazel workspace.
+         */
+        constructor(properties: utils.BazelWorkspaceProperties) {
+            this.workspaceFolder = properties.workspaceFolder;
+            this.bazelWorkspacePath = properties.bazelWorkspacePath,
+            this.aspectPath = properties.aspectPath;
+        }
 
-    return Window.showQuickPick(bzlQuery(query).then(deps => {
-        return deps.map(bzlMakeQueryQuickPickItem);
-    }).catch(async err => {
-        await Window.showQuickPick([], {
-            placeHolder: "<ERROR>"
+        /**
+         * Determine if a terminal is already associated with this workspace.
+         * @returns true if this workspace has already a terminal, false otherwise.
+         */
+        public hasTerminal(): boolean {
+            return this.terminal !== null;
+        }
+
+        /**
+         * This function must be call only on a terminal deletion.
+         */
+        public resetTerminal() {
+            return this.terminal = null;
+        }
+
+        /**
+         * Create or get the associated terminal of the current bazel workspace.
+         * @returns the associated terminal.
+         */
+        public getTerminal(): Terminal {
+            if (this.terminal === null) {
+                this.terminal = Window.createTerminal({
+                    name: `bazel - ${this.workspaceFolder.name}`,
+                    cwd: this.workspaceFolder.uri.fsPath
+                });
+                // For disposal on deactivation
+                extensionContext.subscriptions.push(this.terminal);
+            }
+            return this.terminal;
+        }
+    }
+
+    /**
+     * Extensions source folder that contains
+     * all required runtime dependencies such
+     * as the aspects file.
+     */
+    const BAZEL_EXT_RES_BASE_PATH = 'res';
+    /**
+     * The destination folder where all runtime
+     * dependencies land that are required to be
+     * in the target source tree.
+     */
+    const BAZEL_EXT_DEST_BASE_PATH = '.vscode/.vs_code_bazel_build';
+    /**
+     * Bazel requires a package for the aspect.
+     * This file will be empty.
+     */
+    const BAZEL_BUILD_FILE = 'BUILD';
+    /**
+     * Required aspect for introspecting the
+     * bazel dependency graph.
+     */
+    const BAZEL_ASPECT_FILE = 'vs_code_aspect.bzl';
+
+    /** Bazel workspace file name. */
+    const BAZEL_WORKSPACE_FILE:string = 'WORKSPACE'
+    /** Bazel valid build file names. */
+    const BAZEL_BUILD_FILES: string[] = ['BUILD', 'BUILD.bazel'];
+
+    /** When set to true labels will not be parsed. */
+    let rawLabelDisplay: boolean;
+    /** Collection of all the initialize bazel workspace. */
+    let bazelWorkspaces: BazelWorkspace[] = [];
+    let extensionContext: ExtensionContext;
+
+    /**
+     * Try to initialize the extension.
+     * @param ctx Extension context of VSCode
+     * @returns true if the the plugin has been successfully initialize false otherwise
+     */
+    export async function tryInit(ctx: ExtensionContext): Promise<boolean> {
+        let initialized = false;
+        extensionContext = ctx;
+    
+        if (Workspace.workspaceFolders !== undefined) {
+            Workspace.onDidChangeWorkspaceFolders(onChangeWorkspaceFolders);
+
+            for (const workspaceFolder of Workspace.workspaceFolders) {
+                initialized = await tryInitWorkspace(workspaceFolder) || initialized;
+            } // end for workspace
+        }
+
+        // If all go right init the other modules
+        if (initialized) {
+            init();
+            bazel.init();
+        }
+    
+        return initialized;
+    }
+
+    /**
+     * This methods must be call if the VSCode workspace validate all the
+     * requirement. It will register callback and load the current extension
+     * configuration.
+     * @see {@link tryInit}
+     */
+    function init(): void {
+        Workspace.onDidChangeConfiguration(configurationChangeEvent => {
+            if (configurationChangeEvent.affectsConfiguration('bazel')) {
+                loadConfiguration(Workspace.getConfiguration('bazel'));
+            }
         });
-        return [];
-    }), options);
-}
-
-function bzlClearQueryDiagnostics() {
-    bazelDiagnosticsCollection.clear();
-}
-
-function bzlQueryErrorDiagnostics(error: Error) {
-    let errorStr = error.toString();
-    let errors = errorStr.split("\n");
-
-    let errorStart = "ERROR:";
-    for(let error of errors) {
-        if(error.startsWith(errorStart)) {
-            error = error.substr(errorStart.length)
-
-            let slashIndex = error.indexOf("/")
-            let colonIndex = error.indexOf(":")
-            let drivePrefix = ''
-            if(colonIndex > -1 && colonIndex < slashIndex) {
-                drivePrefix = error.substr(0, colonIndex+1).trim()
-                colonIndex = error.indexOf(":", colonIndex+1)
+        Window.onDidCloseTerminal(terminal => {
+            for (const bzlWs of bazelWorkspaces) {
+                if (bzlWs.hasTerminal() && bzlWs.getTerminal().processId === terminal.processId) {
+                    bzlWs.resetTerminal();
+                    break;
+                }
             }
+        });
+        loadConfiguration(Workspace.getConfiguration('bazel'));
+    }
 
-            let [lineStr, colStr] = error.substr(colonIndex+1).split(":")
+    /**
+     * Try to initialize the extension for a given workspace folder.
+     * 
+     * This function will check in the following order:
+     * * if the given workspace contains any bazel WORKSPACE file
+     *   ({@link BAZEL_WORKSPACE_FILE}). 
+     * * if the given workspace contains any bazel BUILD file
+     *   ({@link BAZEL_BUILD_FILES}).
+     * @param workspaceFolder VSCode workspace folder.
+     * @returns True if the workspace folder fill the condition, false otherwise.
+     * @see {@link tryInitFromBuildFile}
+     */
+    async function tryInitWorkspace(workspaceFolder: WorkspaceFolder): Promise<boolean> {
+        let initialized = false;
 
-            // Bazel returns non-zero based
-            let line = parseInt(lineStr)-1
-            let col = parseInt(colStr)-1
+        let workspacePath = path.join(workspaceFolder.uri.fsPath, BAZEL_WORKSPACE_FILE);
+        if (fs.existsSync(workspacePath)) {
+            // The workspace contains a WORKSPACE file init bazel
+            await setupWorkspace(workspaceFolder.uri.fsPath, extensionContext.extensionPath);
+            bazelWorkspaces.push(
+                new BazelWorkspace({
+                    workspaceFolder: workspaceFolder,
+                    bazelWorkspacePath: workspaceFolder.uri.fsPath,
+                    aspectPath: path.join(BAZEL_EXT_DEST_BASE_PATH, BAZEL_ASPECT_FILE)
+                })
+            );
+            initialized = true;
+        } else {
+            // The workspace does not contains a WORKSPACE file try 
+            // to found if there is any BUILD file
+            initialized = await tryInitFromBuildFile(workspaceFolder);
+        }
 
-            let startPosition = new Position(line, col)
-            let endPosition = new Position(line, col)
-            let range = new Range(startPosition, endPosition)
+        return initialized;
+    }
+
+    /**
+     * Try to find any bazel BUILD ({@link BAZEL_BUILD_FILES}) file in the
+     * workspace folder. If one is found then it search for a WORKSPACE file
+     * in the parent directories.
+     * @param workspaceFolder VSCode workspace folder.
+     * @returns True if a bazel BUILD and it's associated WORKSPACE file has been 
+     * found, false otherwise.
+     */
+    async function tryInitFromBuildFile(workspaceFolder: WorkspaceFolder): Promise<boolean> {
+        let initialized = false;
+
+        for (const buildFile of BAZEL_BUILD_FILES) {
+            const buildPath = path.join(workspaceFolder.uri.fsPath, buildFile);
+            // Check if the bazel build file exists
+            if (fs.existsSync(buildPath)) {
+                // A build file has been found try to found the WORKSPACE file path
+                // by searching recursively in the parents directory.
+                let wsPath = workspaceFolder.uri.fsPath;
+                let lastIndex = wsPath.lastIndexOf(path.sep);
+                let workspaceFileFound = false;
+                while ((lastIndex !== -1) && (!workspaceFileFound)) {
+                    wsPath = wsPath.substr(0, lastIndex);
+                    lastIndex = wsPath.lastIndexOf(path.sep);
+                    workspaceFileFound = fs.existsSync(path.join(wsPath, BAZEL_WORKSPACE_FILE));
+                }
+                if (workspaceFileFound) {
+                    await setupWorkspace(workspaceFolder.uri.fsPath, extensionContext.extensionPath);
+                    bazelWorkspaces.push(
+                        new BazelWorkspace({
+                            workspaceFolder: workspaceFolder,
+                            bazelWorkspacePath: wsPath,
+                            aspectPath: path.join(
+                                workspaceFolder.uri.fsPath.replace(`${wsPath}${path.sep}`, ''),
+                                BAZEL_EXT_DEST_BASE_PATH,
+                                BAZEL_ASPECT_FILE
+                            )
+                        })
+                    );
+                    initialized = true;
+                } else {
+                    Window.showInformationMessage('Bazel BUILD file has been found in the workspace directory, but cannot found any WORKSPACE file in it or in the parent one.');
+                }
+            }
+        }
+
+        return initialized;
+    }
+
+    /**
+     * @callback vscode.workspace.onDidChangeWorkspaceFolders
+     * On VSCode workspace change remove the removed workspace and try to init
+     * the added one.
+     * @param workspaceFoldersEvent An event describing a change to the set of workspace folders.
+     */
+    function onChangeWorkspaceFolders(workspaceFoldersEvent: WorkspaceFoldersChangeEvent): void {
+        for (const workspaceFolder of workspaceFoldersEvent.added) {
+            tryInitWorkspace(workspaceFolder);
+        }
+
+        for (const workspaceFolder of workspaceFoldersEvent.removed) {
+            let index = bazelWorkspaces.findIndex(bzlWs => bzlWs.workspaceFolder.name === workspaceFolder.name);
+            if (index > -1) {
+                bazelWorkspaces.slice(index, 1);
+            }
+        }
+    }
+
+    /**
+     * Install or update the required files into the targets source tree under '.vscode'.
+     * @param wsRoot VSCode workspace root directory.
+     * @param extensionPath Path to the extension.
+     */
+    async function setupWorkspace(wsRoot: string, extensionPath: string): Promise<void> {
+        try {
+            const exists = await fs.exists(path.join(wsRoot, BAZEL_EXT_DEST_BASE_PATH, BAZEL_BUILD_FILE));
             
-            let errorMessage = error.substr(
-                colonIndex + lineStr.length + colStr.length + 3
-            ).trim()
+            const workspaceDestinationPath = path.join(wsRoot, BAZEL_EXT_DEST_BASE_PATH);
+            const bazelSrcAspectPath = path.join(extensionPath, BAZEL_EXT_RES_BASE_PATH, BAZEL_ASPECT_FILE);
+            const bazelDestAspectPath = path.join(workspaceDestinationPath, BAZEL_ASPECT_FILE);
+            
+            if (!exists) {
+                await fs.mkdirs(workspaceDestinationPath);
+                await fs.writeFile(path.join(workspaceDestinationPath, BAZEL_BUILD_FILE), '');
+                await fs.copy(bazelSrcAspectPath, bazelDestAspectPath, {preserveTimestamps: true});
+            } else {
+                const srcStat = await fs.stat(bazelSrcAspectPath);
+                const destStat = await fs.stat(bazelDestAspectPath);
 
-            let diagnostic = new Diagnostic(range, errorMessage)
-            let filePath = drivePrefix + error.substring(
-                slashIndex, colonIndex
-            )
-            let fileUri = Uri.file(filePath)
-
-            let {dispose} = Workspace.onDidSaveTextDocument(txtDoc => {
-                dispose()
-                bzlQuery('...')
-            })
-
-            let diagnostics = bazelDiagnosticsCollection.get(fileUri) || []
-            diagnostics.push(diagnostic);
-            bazelDiagnosticsCollection.set(fileUri, diagnostics)
-        }
-    }
-}
-
-async function bzlQuery(query: string = '...'): Promise<BazelQueryItem[]> {
-    let bzl_config = Workspace.getConfiguration('bazel')
-    let excluded_packages = bzl_config.packageExcludes.join(',')
-    let stdout = await bzl_utils.bzlRunCommandFromShell('query '
-        + `"${query}"`
-        + ' --noimplicit_deps'
-        + ' --nohost_deps'
-        + ' --deleted_packages=' + excluded_packages
-        + ' --output label_kind'
-    )
-    .then(child => {
-        bzlClearQueryDiagnostics()
-        return child.stdout
-    })
-    .catch((error: Error) => {
-        bzlQueryErrorDiagnostics(error)
-        return Promise.reject(error)
-    })
-
-    stdout = stdout.trim();
-    let deps = stdout ? stdout.split('\n') : [];
-    let sep = ' rule ';
-
-    return deps.map((dep:string) => {
-        let idx = dep.search(sep)
-        let rule_kind = dep.substr(0, idx)
-        let target_label = dep.substr(idx+sep.length)
-
-        let item: BazelQueryItem = {
-            kind: rule_kind,
-            label: target_label
-        }
-        return item;
-    });
-}
-
-// Split the bazel label into its atomic parts:
-// workspace name, package and target (name)
-//
-// Pattern: @ws_name//pkg:target
-//
-// The current workspace is referred to as the local
-// workspace in contrast with remote workspaces that
-// are identified by the prefixed at sign.
-function bzlDecomposeLabel(label:string) {
-    let pkg_root = '//'
-    let ws_index = label.search(pkg_root)
-    let ws_name = ws_index > 0
-        ? label.substr(0, ws_index)
-        : 'local'
-    let target_idx = label.search(':')
-    let pkg_offset = ws_index+pkg_root.length
-    return {
-        'ws' : ws_name,
-        'pkg' : label.substr(pkg_offset,
-            target_idx-pkg_offset),
-        'target' : label.substr(target_idx+1,
-            label.length-target_idx)
-    }
-}
-
-export async function bzlBuildTarget(ctx: ExtensionContext) {
-    let target = await bzlQuickPickQuery('...', {
-        matchOnDescription: true,
-        matchOnDetail: true,
-        placeHolder: "bazel build"
-    })
-    if(target) {
-        bzl_utils.bzlRunCommandInTerminal(ctx, `build ${target.query_item.label}`);
-    }
-}
-
-export async function bzlRunTarget(ctx: ExtensionContext) {
-    let target = await bzlQuickPickQuery('kind(.*_binary, deps(...))', {
-        matchOnDescription: true,
-        matchOnDetail: true,
-        placeHolder: "Run bazel binary target (*_binary)"
-    })
-    if(target) {
-        bzl_utils.bzlRunCommandInTerminal(ctx, `run ${target.query_item.label}`)
-    }
-}
-
-export async function bzlClean(ctx: ExtensionContext) {
-    bzl_utils.bzlRunCommandInTerminal(ctx, 'clean')
-}
-
-// Intalls our required files into the targets
-// source tree under '.vscode'.
-async function bzlSetupWorkspace(ws_root: string, ext_root: string) {
-    try {
-        let ws_dest = path.join(ws_root, bzl_defines.BAZEL_EXT_DEST_BASE_PATH)
-        await fs.mkdirs(ws_dest)
-        await fs.writeFile(path.join(ws_dest,
-                bzl_defines.BAZEL_BUILD_FILE), '')
-        await fs.copy(path.join(ext_root,
-                bzl_defines.BAZEL_EXT_RES_BASE_PATH,
-                bzl_defines.BAZEL_ASPECT_FILE),
-            path.join(ws_dest,
-                bzl_defines.BAZEL_ASPECT_FILE))
-    } catch(err) {
-        console.log('error during file i/o '
-            + err.toString())
-    }
-}
-
-// Find files by searching recursively beginning at
-// a given root directory. A filename matches if it
-// contains 'substr'
-async function bzlFindFiles(substr: string, root: string) : Promise<string[]> {
-    let found_files = []
-    try {
-        let files = await fs.readdir(root)
-        for(let i=0; i<files.length; i++) {
-            let file_path = path.join(root, files[i])
-            let stats = await fs.stat(file_path)
-            if(stats && stats.isDirectory()) {
-                let sub_dir_files = await bzlFindFiles(substr, file_path)
-                for(let j=0; j<sub_dir_files.length; j++) {
-                    found_files.push(sub_dir_files[j])
+                if (srcStat.mtime.getTime() !== destStat.mtime.getTime()) {
+                    await fs.copy(bazelSrcAspectPath, bazelDestAspectPath, {overwrite: true, preserveTimestamps: true});
                 }
             }
-            else {
-                if(files[i].search(substr) != -1) {
-                    found_files.push(file_path)
-                }
-            }
+        } catch(err) {
+            Window.showErrorMessage('Error during file i/o ' + err.toString());
         }
-    } catch(err) {
-        console.log(err.toString())
     }
-    return found_files
-}
 
-// Evaluates the passed (C++) descriptor files and generates the file
-// 'c_cpp_properties.json' that makes all paths available to vscode
-// under 'ws_root_dir/.vscode'.
-//
-// ws_root_dir: Root directory of the users workspace.
-// output_root_dir: Bazels output directory.
-// descriptors: Rule dependent descriptor data such as include paths.
-async function bzlCreateCppProperties(ws_root_dir: string, output_root_dir: string, descriptors: any) {
-    try {
-        let include_paths = new Set()
-        for(let i=0; i<descriptors.length; i++) {
-            let buf = await fs.readFile(descriptors[i])
-            let descriptor = JSON.parse(buf.toString())
-            let bzl_rule_kind = descriptor.kind
-            if(bzl_rule_kind == 'cc_binary'
-                || bzl_rule_kind == 'cc_library'
-                || bzl_rule_kind == 'cc_toolchain'
-                || bzl_rule_kind == 'apple_cc_toolchain') {
-                let includes = descriptor.data.includes
-                for(let j=0; j<includes.length; j++) {
-                    includes[j] = path.normalize(includes[j])
-                    if(includes[j].split(path.sep)[0] != 'bazel-out') {
-                        let abs_inc_path = includes[j]
-                        if(bzl_rule_kind != 'cc_toolchain'
-                            && bzl_rule_kind != 'apple_cc_toolchain') {
-                            abs_inc_path = path.join(
-                            output_root_dir, abs_inc_path)
-                        }
-                        include_paths.add(abs_inc_path)
-                    }
-                }
-            }
-        }
-        let cpp_props_file = path.join(ws_root_dir,
-            '.vscode', 'c_cpp_properties.json')
-        let cpp_props_available = await fs.exists(cpp_props_file)
-        let cpp_props_create_file = true
-        if(cpp_props_available) {
-            let options: InputBoxOptions = {
-                prompt: 'There is already a c_cpp_properties.json file in '
-                      + 'your workspace. Can we overwrite it?',
-                placeHolder : 'y/yes to overwrite',
-            };
-            let users_decision = await Window.showInputBox(options)
-            if(users_decision != 'y' && users_decision != 'yes') {
-                cpp_props_create_file = false
-            }
-        }
-        if(cpp_props_create_file) {
-            let path_arr = Array.from(include_paths)
-            let cpp_props_data:any = bzl_defines.bzlGetBaseCppProperties()
-            for(let i=0; i<cpp_props_data.configurations.length; i++) {
-                cpp_props_data.configurations[i].includePath = path_arr
-                cpp_props_data.configurations[i].browse.path = path_arr
-            }
-            await fs.writeFile(cpp_props_file, JSON.stringify(cpp_props_data, null, 4))
-            Window.showInformationMessage('c_cpp_properties.json file has been successfully created')
-        }
-    } catch(err) {
-        console.log(err.toString())
+    /**
+     * Initialize the module with the user configuration.
+     * @param bazelConfig New configuration to load.
+     */
+    function loadConfiguration(bazelConfig: WorkspaceConfiguration): void {
+        rawLabelDisplay = bazelConfig.get<boolean>('rawLabelDisplay') || false;
     }
-}
 
-// * Let the user choose a root target from which we
-//   are going to apply the aspect and gather all
-//   cxx include paths
-//
-// * Create the vs code file 'c_cpp_properties.json'
-//   into the destination folder and append the found
-//   include paths to that file under the section
-//   'includePath' as well as 'browse.path'
-export async function bzlCreateCppProps(ctx: ExtensionContext) {
-    try {
-        let has_workspace = await bzlTryInit(ctx)
-        if(has_workspace) {
-            let ws_folders = Workspace.workspaceFolders
-            if(ws_folders != undefined) {
-                let ws_root = ws_folders[0].uri.fsPath
-                let aspect_pkg = bzl_defines.BAZEL_EXT_DEST_BASE_PATH + '/' + bzl_defines.BAZEL_ASPECT_FILE
-                let cmd_args = [
-                    'build',
-                    '--aspects',
-                    aspect_pkg + '%vs_code_bazel_inspect',
-                    '--output_groups=descriptor_files'
-                ]
+    /**
+     * * Let the user choose a root target from which we
+     *   are going to apply the aspect and gather all
+     *   cxx include paths
+     * 
+     * * Create the vs code file 'c_cpp_properties.json'
+     *   into the destination folder and append the found
+     *   include paths to that file under the section
+     *   'includePath' as well as 'browse.path'
+     * 
+     * @param ctx Extension context
+     */
+    export async function bzlCreateCppProps(ctx: ExtensionContext) : Promise<void> {
+        try {
+            const bzlWs = await pickWorkspace();
+            if (bzlWs !== undefined) {
                 // For c_cpp_properties we are only
                 // interested in C++ targets.
-                let target = await bzlQuickPickQuery('kind(cc_.*, deps(...))', {
+                const target = await quickPickQuery(bzlWs, 'kind(cc_.*, deps(...))', {
                     matchOnDescription: true,
                     matchOnDetail: true,
-                    placeHolder: "Generate cpp properties for target ..."
-                })
-                if(target) {
-                    cmd_args.push(target.query_item.label)
-                    await bzl_utils.bzlRunCommandFromShell(cmd_args.join(' '))
-
+                    placeHolder: 'Generate cpp properties for target ...'
+                });
+                if (target !== undefined) {
                     // 1) Try to find all descriptor files the bazel
                     //    aspect might have generated into the output
                     //    directory 'bazel-bin'
-                    let descriptors = await bzlFindFiles('vs_code_bazel_descriptor',
-                        path.join(ws_root, 'bazel-bin'))
+                    const descriptors = await bazel.buildDescriptor(bzlWs, target.query_item.label);
 
                     // 2) Build absolute include paths based on the
                     //    relative paths from the descriptors and
                     //    the symlinked bazel workspace 'bazel-<root>'
                     //    where root is the current working directory.
-                    await bzlCreateCppProperties(
-                        ws_root,
-                        path.join(ws_root,
-                        'bazel-' + path.basename(ws_root)),
-                        descriptors)
+                    await cppproject.createCppProperties(
+                        bzlWs.workspaceFolder.uri.fsPath,
+                        path.join(bzlWs.bazelWorkspacePath, `bazel-${path.basename(bzlWs.bazelWorkspacePath)}`),
+                        descriptors
+                    ); // TODO directly pass the bzlWs
+
                     // 3) Cleanup all temporary descriptor files
-                    for(let i=0; i<descriptors.length; i++) {
-                        fs.unlink(descriptors[i])
+                    for (const descriptor of descriptors) {
+                        fs.unlink(descriptor);
                     }
                 }
             }
+        } catch (err) {
+            console.log(err.toString());
         }
-    } catch(err) {
-        console.log(err.toString())
     }
-}
 
-export async function bzlTryInit(ctx: ExtensionContext) {
-    let has_workspace = await bzl_utils.bzlHasWorkspace()
-    if(has_workspace) {
-        let ws_folders = Workspace.workspaceFolders;
-        if(ws_folders != undefined) {
-            let ws_root = ws_folders[0].uri.fsPath
-            let exists = await fs.exists(path.join(ws_root,
-                bzl_defines.BAZEL_EXT_DEST_BASE_PATH,
-                bzl_defines.BAZEL_BUILD_FILE))
-            if(!exists) {
-                await bzlSetupWorkspace(ws_root, ctx.extensionPath)
+    /**
+     * 
+     * @param ctx 
+     */
+    export async function bzlBuildTarget(ctx: ExtensionContext) {
+        const bzlWs = await pickWorkspace();
+        if (bzlWs !== undefined) {
+            return quickPickQuery(bzlWs, '...', {
+                matchOnDescription: true,
+                matchOnDetail: true,
+                placeHolder: 'bazel build'
+            }).then(target => {
+                if (target !== undefined) {
+                    let terminal = bzlWs.getTerminal()
+                    bazel.build(terminal, target.query_item.label);
+                    terminal.show();
+                }
+            });
+        }
+    }
+
+    /**
+     * 
+     * @param ctx 
+     */
+    export async function bzlRunTarget(ctx: ExtensionContext) {
+        const bzlWs = await pickWorkspace();
+        if (bzlWs !== undefined) {
+            return quickPickQuery(bzlWs, 'kind(.*_binary, deps(...))', {
+                matchOnDescription: true,
+                matchOnDetail: true,
+                placeHolder: 'Run bazel binary target (*_binary)'
+            }).then(target => {
+                if (target !== undefined) {
+                    let terminal = bzlWs.getTerminal();
+                    bazel.run(terminal, target.query_item.label);
+                    terminal.show();
+                }
+            });
+        }
+    }
+
+    /**
+     * 
+     * @param ctx 
+     */
+    export async function bzlClean(ctx: ExtensionContext) {
+        let bzlWs = await pickWorkspace();
+        if (bzlWs !== undefined) {
+            let terminal = bzlWs.getTerminal()
+            bazel.clean(terminal);
+            terminal.show();
+        }
+    }
+
+    /**
+     * 
+     * @param ctx 
+     */
+    export async function bzlShowDepGraph(ctx: ExtensionContext) {
+        let uri = Uri.parse('bazel_dep_graph://');
+        Commands.executeCommand('vscode.previewHtml', uri, ViewColumn.Two, 'Graph View');
+    }
+
+    /**
+     * 
+     * @returns
+     */
+    async function pickWorkspace(): Promise<BazelWorkspace | undefined> {
+        if (bazelWorkspaces.length === 1) {
+            // If there only one workspace no problem continue
+            return new Promise<BazelWorkspace>((resolve, reject) => {
+                resolve(bazelWorkspaces[0]);
+            });
+        } else if (bazelWorkspaces.length > 0) {
+            // Otherwise the user must choose the workspace to work to
+            return await Window.showQuickPick(
+                bazelWorkspaces.map(
+                    ws => <BazelWorkspaceQuickPickItem> {
+                        label: ws.workspaceFolder.name,
+                        description: ws.workspaceFolder.uri.fsPath,
+                        item: ws
+                    }
+                ),
+            <QuickPickOptions> {
+                placeHolder: 'Workspace folder'
+            }).then(item => item ? item.item : undefined);
+        }
+        return undefined;
+    }
+
+    /**
+     * 
+     * @param bzlWs 
+     * @param query 
+     * @param options 
+     * @returns
+     */
+    function quickPickQuery(bzlWs: BazelWorkspace, query: string = '...', options?: QuickPickOptions): Thenable<BazelQueryQuickPickItem | undefined> {
+        let quickPickQuery = bazel.queryBzl(bzlWs.workspaceFolder.uri.fsPath, query).then(
+            queryItems => {
+                if (rawLabelDisplay) {
+                    return queryItems.map(rawQuickPickItem);
+                } else {
+                    return queryItems.map(parseQuickPickItem);
+                }
             }
-        }
-    }
-    return has_workspace
-}
+        ).catch((err: Error) => {
+            Window.showQuickPick([], {placeHolder: '<ERROR>'});
+            Window.showErrorMessage("Failed to query bazel, take a look in the Problems view.");
+            return [];
+        });
 
-export async function bzlShowDepGraph(ctx: ExtensionContext) {
-    let uri = Uri.parse("bazel_dep_graph://")
-    Commands.executeCommand("vscode.previewHtml", uri,
-        ViewColumn.Two, "Graph View")
+        return Window.showQuickPick(quickPickQuery, options);
+    }
+
+    /**
+     * 
+     * @param queryItem 
+     * @returns
+     */
+    function rawQuickPickItem(queryItem: bazel.BazelQueryItem): BazelQueryQuickPickItem {
+        return {
+            label: queryItem.label,
+            description: '',
+            detail: queryItem.kind,
+            query_item: queryItem
+        };
+    }
+
+    /**
+     * 
+     * @param queryItem 
+     * @returns
+     */
+    function parseQuickPickItem(queryItem: bazel.BazelQueryItem): BazelQueryQuickPickItem {
+        const { ws, pkg, target } = utils.decomposeLabel(queryItem.label);
+        const lang = utils.ruleKindToLanguage(queryItem.kind);
+    
+        return {
+            label: target,
+            description: '',
+            detail: `${lang} | ws{${ws}} | pkg{${pkg}}`,
+            query_item: queryItem
+        };
+    }
+
 }

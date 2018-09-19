@@ -1,40 +1,87 @@
-import {workspace as Workspace, window as Window, ExtensionContext} from 'vscode'
-const child_proc = require('child-process-async');
+import { WorkspaceFolder } from 'vscode';
 
-// * Execute our bazel command
-// * Make the terminal visible to the user
-export async function bzlRunCommandInTerminal(ctx: ExtensionContext, cmd_args:string) {
-    let bazelExecutablePath = Workspace.getConfiguration("bazel").get<string>("executablePath");
-    var term = Window.createTerminal(`bazel ${cmd_args}`);
-    term.sendText(`"${bazelExecutablePath}" ${cmd_args}`);
-    term.show();
-    // For disposal on deactivation
-    ctx.subscriptions.push(term);
-}
-
-// Executes a bazel command, e.g. query or build.
-export async function bzlRunCommandFromShell(cmd_args: string) {
-    var ws_folders = Workspace.workspaceFolders
-    var ws_path:string = ''
-    if(ws_folders != undefined) {
-        ws_path = ws_folders[0].uri.fsPath
+export namespace utils {
+    export interface BazelWorkspaceProperties {
+        readonly workspaceFolder: WorkspaceFolder;
+        readonly bazelWorkspacePath: string;
+        readonly aspectPath: string;
     }
-    
-    let bazelExecutablePath = Workspace.getConfiguration("bazel").get<string>("executablePath");
-    return child_proc.exec(`"${bazelExecutablePath}" ${cmd_args}`, {
-        'cwd': ws_path
-    });
-}
 
-// Checks whether the opened folder defines a bazel workspace
-export async function bzlHasWorkspace() : Promise<boolean> {
-    try {
-        var uris = await Workspace.findFiles('WORKSPACE')
-        if(uris.length) {
-            return true
+    /**
+     * Maps bazel rules that belong together to their
+     * target programming language. If a rule is not
+     * used for compiling any language but aims to
+     * fulfill a more general task then we use the
+     * rule kind as the return value.
+     * @param rule_kind 
+     * @returns
+     * @todo Complete this map.
+     */
+    export function ruleKindToLanguage(rule_kind: string): string {
+        rule_kind = rule_kind.trim();
+        let lang = rule_kind;
+        switch (rule_kind) {
+            case 'cc_library':
+            case 'cc_import':
+            case 'cc_binary':
+            case 'cc_test':
+                lang = 'C++';
+                break;
+            case 'cc_toolchain_suite':
+            case 'cc_toolchain':
+                lang = 'C++ Tools';
+                break;
+            case 'py_binary':
+            case 'py_library':
+            case 'py_test':
+            case 'py_runtime':
+                lang = 'Python';
+                break;
+            case 'java_library':
+            case 'jave_import':
+            case 'java_binary':
+            case 'java_test':
+                lang = 'Java';
+                break;
+            case 'filegroup':
+                lang = 'Filegroup';
+                break;
         }
-    } catch(error) {
-        Window.showErrorMessage(error.toString())
+        return lang;
     }
-    return false;
+
+
+
+    const DECOMPOSE_LABEL_REGEX = /(@.+)?\/\/(.+)?:(.+)/;
+    const DECOMPOSE_LABEL_ERROR = {
+        ws: '<ERROR>',
+        pkg: '<ERROR>',
+        target: '<ERROR>'
+    };
+
+    /**
+     * Split the bazel label into its atomic parts:
+     * workspace name, package and target (name)
+     *
+     * Pattern: @ws_name//pkg:target
+     *
+     * The current workspace is referred to as the local
+     * workspace in contrast with remote workspaces that
+     * are identified by the prefixed at sign.
+     * @param label 
+     * @returns
+     */
+    export function decomposeLabel(label: string) {
+        let decomposedLabel = DECOMPOSE_LABEL_ERROR;
+        let matches = DECOMPOSE_LABEL_REGEX.exec(label)
+        if (matches !== null) {
+            decomposedLabel= {
+                ws: matches[1] || 'local',
+                pkg: matches[2] || '',
+                target: matches[3]
+            };
+        }
+        
+        return decomposedLabel;
+    }
 }
