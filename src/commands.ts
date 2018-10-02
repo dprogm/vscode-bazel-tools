@@ -9,7 +9,8 @@ import {
     WorkspaceFoldersChangeEvent,
     WorkspaceFolder,
     ViewColumn,
-    RelativePattern
+    RelativePattern,
+    Task
 } from 'vscode';
 import { bazel } from './bazel';
 import { cppproject } from './cppproject';
@@ -31,15 +32,18 @@ export module commands {
     /**
      * Bazel workspace information.
      */
-    class BazelWorkspace implements utils.BazelWorkspaceProperties{
+    class BazelWorkspace implements utils.BazelWorkspaceProperties {
         // VSCode workspace folder reference.
         public readonly workspaceFolder: WorkspaceFolder;
         // Path to the bazel WORKSPACE file.
         public readonly bazelWorkspacePath: string;
         // Path to the installed aspect file to generate descriptor files.
         public readonly aspectPath: string;
-        // Associated terminal to the workspace.
+        /** @deprecated use tasks now
+         * Associated terminal to the workspace.
+         */
         private terminal: Terminal | null = null;
+        public tasks?: Task[];
 
         /**
          * Constructor.
@@ -52,6 +56,7 @@ export module commands {
         }
 
         /**
+         * @deprecated use tasks now
          * Determine if a terminal is already associated with this workspace.
          * @returns true if this workspace has already a terminal, false otherwise.
          */
@@ -60,6 +65,7 @@ export module commands {
         }
 
         /**
+         * @deprecated use tasks now
          * This function must be call only on a terminal deletion.
          */
         public resetTerminal() {
@@ -67,6 +73,7 @@ export module commands {
         }
 
         /**
+         * @deprecated use tasks now
          * Create or get the associated terminal of the current bazel workspace.
          * @returns the associated terminal.
          */
@@ -116,6 +123,7 @@ export module commands {
     /** Collection of all the initialize bazel workspace. */
     let bazelWorkspaces: BazelWorkspace[] = [];
     let extensionContext: ExtensionContext;
+    let bazelProvideTask: boolean;
 
     /**
      * Try to initialize the extension.
@@ -155,11 +163,22 @@ export module commands {
                 loadConfiguration(Workspace.getConfiguration('bazel'));
             }
         });
+        // @deprecated
         Window.onDidCloseTerminal(terminal => {
             for (const bzlWs of bazelWorkspaces) {
                 if (bzlWs.hasTerminal() && bzlWs.getTerminal().processId === terminal.processId) {
                     bzlWs.resetTerminal();
                     break;
+                }
+            }
+        });
+        Workspace.onDidSaveTextDocument(textDocument => {
+            if ('bazel' === textDocument.languageId) {
+                let bzlWsModify = bazelWorkspaces.find(bzlWs => {
+                    return textDocument.fileName.startsWith(bzlWs.bazelWorkspacePath);
+                });
+                if (bzlWsModify !== undefined) {
+                    bzlWsModify.tasks = undefined;
                 }
             }
         });
@@ -310,7 +329,8 @@ export module commands {
      * @param bazelConfig New configuration to load.
      */
     function loadConfiguration(bazelConfig: WorkspaceConfiguration): void {
-        rawLabelDisplay = bazelConfig.get<boolean>('rawLabelDisplay') || false;
+        rawLabelDisplay = <boolean>bazelConfig.get<boolean>('rawLabelDisplay');
+        bazelProvideTask = (bazelConfig.get<string>('autoDetect') === 'on');
     }
 
     /**
@@ -349,9 +369,9 @@ export module commands {
                     await cppproject.createCppProperties(bzlWs, target.query_item.label, descriptors);
 
                     // 3) Cleanup all temporary descriptor files
-                    for (const descriptor of descriptors) {
-                        fs.unlink(descriptor);
-                    }
+                    //for (const descriptor of descriptors) {
+                       // fs.unlink(descriptor);
+                    //}
                 }
             }
         } catch (err) {
@@ -360,7 +380,7 @@ export module commands {
     }
 
     /**
-     * 
+     * @deprecated
      * @param ctx 
      */
     export async function bzlBuildTarget(ctx: ExtensionContext) {
@@ -381,7 +401,7 @@ export module commands {
     }
 
     /**
-     * 
+     * @deprecated
      * @param ctx 
      */
     export async function bzlRunTarget(ctx: ExtensionContext) {
@@ -402,7 +422,7 @@ export module commands {
     }
 
     /**
-     * 
+     * @deprecated
      * @param ctx 
      */
     export async function bzlClean(ctx: ExtensionContext) {
@@ -412,6 +432,31 @@ export module commands {
             bazel.clean(terminal);
             terminal.show();
         }
+    }
+
+    export async function provideTasks() {
+        if (!bazelProvideTask) {
+            return [];
+        }
+
+        let tasksResolverPromiseByWs = bazel.provideTasks(bazelWorkspaces.filter(bzlWs => !bzlWs.tasks));
+        for (const tasksResolverPromise of tasksResolverPromiseByWs) {
+            try {
+                let tasksResolver = await tasksResolverPromise;
+                (<BazelWorkspace>tasksResolver.workspaceFolder).tasks = tasksResolver.tasks;
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        let allTasks: Task[] = [];
+        for (const ws of bazelWorkspaces) {
+            if (ws.tasks !== undefined) {
+                allTasks.push(...ws.tasks);
+            }
+        }
+
+        return allTasks;
     }
 
     /**

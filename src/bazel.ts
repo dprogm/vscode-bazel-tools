@@ -6,7 +6,11 @@ import {
     languages,
     Diagnostic,
     Position,
-    Range
+    Range,
+    TaskGroup,
+    ProcessExecution,
+    Task,
+    TaskDefinition
 } from 'vscode';
 const child_proc = require('child-process-async');
 import * as path from 'path';
@@ -40,7 +44,7 @@ export module bazel {
             }
         });
         loadConfiguration(Workspace.getConfiguration('bazel'));
-        bazelDiagnosticsCollection = languages.createDiagnosticCollection("bazel");
+        bazelDiagnosticsCollection = languages.createDiagnosticCollection('bazel');
     }
 
 
@@ -149,6 +153,7 @@ export module bazel {
     }
 
     /**
+     * @deprecated use tasks now
      * Execute a bazel build command in the given terminal.
      * @param terminal Terminal to use for executing the build command.
      * @param target Target that must be build.
@@ -174,7 +179,108 @@ export module bazel {
         runInTerminal(terminal, [bazelExecutablePath, 'clean']);
     }
 
+    interface BazelTaskDefinition extends TaskDefinition {
+        target?: string;
+        kind?: string;
+        command: string;
+        args?: string[];
+    }
+
+    export function resolveTask(task: Task): Task | undefined {
+        const taskDefinition = <BazelTaskDefinition>task.definition;
+        let args = [taskDefinition.command];
+        if (taskDefinition.args !== undefined) {
+            args.push(...taskDefinition.args);
+        }
+        if (taskDefinition.target !== undefined) {
+            args.push(taskDefinition.target);
+        }
+        task.execution = new ProcessExecution(
+            bazelExecutablePath,
+            args
+        );
+
+        return task;
+    }
+
+    export function provideTasks(bzlWorkspace: utils.BazelWorkspaceProperties[]) {
+        return bzlWorkspace.map(workspaceFolder =>
+            queryBzl(workspaceFolder).then(
+                bazelQueryItem => {
+                    return {
+                        'workspaceFolder': workspaceFolder,
+                        'tasks': toTasks(workspaceFolder, bazelQueryItem)
+                    }
+                }
+            )
+        );
+    }
+
+    function toTasks(bzlWs: utils.BazelWorkspaceProperties, bazelQueryItem: BazelQueryItem[]): Task[] {
+        let tasks = bazelQueryItem.map(item => {
+            const name = `bazel (${item.label})`;
+            const source = 'bazel';
+            let taskGroup: TaskGroup | undefined = undefined;
+            let command = 'build';
+
+            if (item.kind.includes('test')) {
+                taskGroup = TaskGroup.Test;
+                command = 'test';
+            } else {
+                taskGroup = TaskGroup.Build;
+                command = 'build';
+            }
+
+
+            let bzlTaskDefinition: BazelTaskDefinition = {
+                type: 'bazel',
+                target: item.label,
+                kind: item.kind,
+                command: command
+            };
+
+            
+            let task = new Task(bzlTaskDefinition, bzlWs.workspaceFolder, name, source);
+            task.group = taskGroup;
+            task.execution = new ProcessExecution(
+                bazelExecutablePath,
+                [bzlTaskDefinition.command, bzlTaskDefinition.target || "..."],
+                { cwd: bzlWs.bazelWorkspacePath }
+            );
+
+            //task.problemMatchers = [];
+
+            return task;
+        });
+
+        // Add special tasks
+        tasks.push(cleanTask(bzlWs));
+
+        return tasks;
+    }
+
+    function cleanTask(bzlWs: utils.BazelWorkspaceProperties) {
+        const name = 'bazel (clean)';
+        const source = 'bazel';
+
+        let bzlTaskDefinition: BazelTaskDefinition = {
+            type: 'bazel',
+            command: 'clean'
+        };
+
+        let task = new Task(bzlTaskDefinition, bzlWs.workspaceFolder, name, source);
+        task.group = TaskGroup.Clean;
+        task.execution = new ProcessExecution(
+            bazelExecutablePath,
+            [bzlTaskDefinition.command],
+            { cwd: bzlWs.bazelWorkspacePath }
+        );
+
+        return task;
+    }
+
     /**
+     * @deprecated use tasks now
      * Execute the given command in the terminal.
      * @param terminal Terminal to use for executing the command.
      * @param command Command to execute.
@@ -202,7 +308,7 @@ export module bazel {
      * @param error 
      */
     function parseErrorDiagnostics(bzlWs: utils.BazelWorkspaceProperties, error: Error) {
-        const errors = error.toString().split("\n");
+        const errors = error.toString().split('\n');
         const errorRegex = /ERROR: ((\w:)?([^:]*)):(\d+):(\d+): (.*)/;
 
         for(let error of errors) {
