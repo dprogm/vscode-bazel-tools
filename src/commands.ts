@@ -346,7 +346,11 @@ export module commands {
                     //    relative paths from the descriptors and
                     //    the symlinked bazel workspace 'bazel-<root>'
                     //    where root is the current working directory.
-                    await cppproject.createCppProperties(bzlWs, target.query_item.label, descriptors);
+                    await cppproject.createCppProperties(
+                        bzlWs,
+                        target.query_item.label,
+                        descriptors
+                    );
 
                     // 3) Cleanup all temporary descriptor files
                     for (const descriptor of descriptors) {
@@ -427,7 +431,7 @@ export module commands {
                 placeHolder: 'Trace dependencies graph'
             }).then(async target => {
                 if (target !== undefined) {
-                    const graph = await bazel.depGraph(bzlWs, target.query_item.label);
+                    const graph = await bazel.depGraph(bzlWs, target.query_item.label, true);
                     let viz = new Viz({ Module, render });
                     let svgGraph = await viz.renderString(graph);
                     const panel = Window.createWebviewPanel(

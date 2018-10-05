@@ -18,12 +18,12 @@ export namespace utils {
         readonly compile_flags: string[];
         readonly defines: string[];
 
-        readonly base_compiler_option: string[];
-        readonly c_option: string[];
-        readonly cpp_option: string[];
-        readonly unfiltered_compiler_option: string[];
-        readonly cpp_executable: string;
-        readonly built_in_include_directory: string[];
+        readonly base_compiler_option?: string[];
+        readonly c_option?: string[];
+        readonly cpp_option?: string[];
+        readonly unfiltered_compiler_option?: string[];
+        readonly cpp_executable?: string;
+        readonly built_in_include_directory?: string[];
     }
 
     export interface BazelDescriptor {
@@ -118,5 +118,12 @@ export namespace utils {
         }
         
         return decomposedLabel;
+    }
+
+    export function setAdd<T>(set: Set<T>, elements: T[]) {
+        for (const element of elements) {
+            set.add(element);
+        }
+        return set;
     }
 }

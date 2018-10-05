@@ -16,23 +16,34 @@ export module cppproject {
      * 
      * @param bzlWs 
      * @param descriptorFiles Rule dependent descriptor data such as include paths.
+     * @param resolveAllDescriptor 
      */
-    export async function createCppProperties(bzlWs: utils.BazelWorkspaceProperties, target: string, descriptorFiles: string[]) {
+    export async function createCppProperties(
+                            bzlWs: utils.BazelWorkspaceProperties,
+                            target: string,
+                            descriptorFiles: string[]
+    ) {
         if (descriptorFiles.length < 1) {
             return;
         }
 
         // Root directory of the users workspace.
         const workspaceRootDir = bzlWs.workspaceFolder.uri.fsPath;
-        // Bazel output directory.
-        const bazelOutputRootDir = path.join(bzlWs.bazelWorkspacePath, `bazel-${path.basename(bzlWs.bazelWorkspacePath)}`);
 
         try {
-            const {includes, defines} = parseDescriptors(bazelOutputRootDir, descriptorFiles);
+            let { includes, defines } = parseDescriptors(
+                bzlWs,
+                descriptorFiles
+            );
 
             const descriptor: utils.BazelDescriptor = require(descriptorFiles[descriptorFiles.length - 1])
-            const cppPropsFile = path.join(workspaceRootDir, '.vscode', 'c_cpp_properties.json');
+            const dotVscodeDir = path.join(workspaceRootDir, '.vscode');
+            const cppPropsFile = path.join(dotVscodeDir, 'c_cpp_properties.json');
             
+            if (!fs.existsSync(dotVscodeDir)) {
+                fs.mkdirpSync(dotVscodeDir);
+            }
+
             let cppProject: CCppPropertiesSchema;
             if (fs.existsSync(cppPropsFile)) {
                 cppProject = require(cppPropsFile);
@@ -42,7 +53,9 @@ export module cppproject {
 
             let createOrUpdateFile = true;
             const cppProjectTargetName = `${capitalize(os.platform())} (${target})`;
-            let configurationIndex = cppProject.configurations.findIndex(conf => conf.name === cppProjectTargetName);
+            let configurationIndex = cppProject.configurations.findIndex(
+                conf => conf.name === cppProjectTargetName
+            );
             if (configurationIndex !== -1) {
                 let options: InputBoxOptions = {
                     prompt: 'There is already a c_cpp_properties.json file in your workspace. Can we update it?',
@@ -66,8 +79,8 @@ export module cppproject {
                 configuration.intelliSenseMode = getIntelliSenseMode(descriptor);
                 configuration.cStandard = getCStandard(descriptor);
                 configuration.cppStandard = getCppStandard(descriptor);
-                configuration.includePath = Array.from(includes);
-                configuration.defines = Array.from(defines);
+                configuration.includePath = Array.of(...includes);
+                configuration.defines = Array.of(...defines);
                 if (configuration.browse === undefined) {
                     configuration.browse = {
                         limitSymbolsToIncludedHeaders: true,
@@ -83,18 +96,28 @@ export module cppproject {
         }
     }
 
-    function parseDescriptors(bazelOutputRootDir: string, descriptorFiles: string[]) {
-        let includePaths = new Set<string>();
-        let defines = new Set<string>();
+    function parseDescriptors(
+        bzlWs: utils.BazelWorkspaceProperties,
+        descriptorFiles: string[]
+    ) {
+        let includePaths: Set<string> = new Set<string>(),
+            defines: Set<string> = new Set<string>();
+
+        let relativePathWsAndBzlWs = path.relative(
+            bzlWs.workspaceFolder.uri.fsPath,
+            bzlWs.bazelWorkspacePath
+        );
+
+        if (relativePathWsAndBzlWs !== '') {
+            relativePathWsAndBzlWs += path.sep;
+        }
 
         for (const descriptorFile of descriptorFiles) {
             const descriptor: utils.BazelDescriptor = require(descriptorFile);
             const bzlRuleKind = descriptor.kind;
             if (
-                bzlRuleKind == 'cc_binary'      ||
-                bzlRuleKind == 'cc_library'     ||
-                bzlRuleKind == 'cc_toolchain'   ||
-                bzlRuleKind == 'apple_cc_toolchain'
+                bzlRuleKind.startsWith('cc_')      ||
+                bzlRuleKind.startsWith('apple_cc')
             ) {
                 const targetIncludes = Array.of(
                     ...descriptor.cc.include_dirs,
@@ -102,18 +125,25 @@ export module cppproject {
                     ...descriptor.cc.quote_include_dirs
                 );
 
-                descriptor.cc.built_in_include_directory.forEach(value => includePaths.add(value));
-                descriptor.cc.defines.forEach(value => defines.add(value));
+                if (descriptor.cc.built_in_include_directory) {
+                    utils.setAdd(includePaths, descriptor.cc.built_in_include_directory);
+                }
+                utils.setAdd(defines, descriptor.cc.defines);
+
+                let dotIndex = targetIncludes.indexOf('.');
+                if (dotIndex !== -1) {
+                    targetIncludes.splice(dotIndex, 1);
+                }
 
                 for (let include of targetIncludes) {
-                    include = path.normalize(include);
-                    if (include.split(path.sep)[0] != 'bazel-out') {
-                        const absIncludePath = path.join(bazelOutputRootDir, include);
-                        includePaths.add(absIncludePath);
+                    if (!include.startsWith('bazel-')) {
+                        include = `bazel-${path.basename(bzlWs.bazelWorkspacePath)}/${include}`;
                     }
+                    let absIncludePath = `\${workspaceFolder}${path.sep}${relativePathWsAndBzlWs}${include}` ;
+                    includePaths.add(absIncludePath);
                 }
             } // end if cc_*
-        }
+        } // end loop
 
         return {
             includes: includePaths,
@@ -122,15 +152,16 @@ export module cppproject {
     }
 
     function getIntelliSenseMode(descriptor: utils.BazelDescriptor) {
-        let intelliSenseMode: Configuration["intelliSenseMode"];
-        if (descriptor.cc.cpp_executable.endsWith('clang')) {
-            intelliSenseMode = 'clang-x64';
-        } else if (/(g?cc)|([gc]\+\+)$/.test(descriptor.cc.cpp_executable)) {
-            intelliSenseMode = 'gcc-x64';
-        } else if (descriptor.cc.cpp_executable.endsWith('cl')) {
-            intelliSenseMode = 'msvc-x64';
-        } else {
-            intelliSenseMode = '${default}';
+        let intelliSenseMode: Configuration["intelliSenseMode"] = '${default}';
+
+        if (descriptor.cc.cpp_executable) {
+            if (descriptor.cc.cpp_executable.endsWith('clang')) {
+                intelliSenseMode = 'clang-x64';
+            } else if (/(g?cc)|([gc]\+\+)$/.test(descriptor.cc.cpp_executable)) {
+                intelliSenseMode = 'gcc-x64';
+            } else if (descriptor.cc.cpp_executable.endsWith('cl')) {
+                intelliSenseMode = 'msvc-x64';
+            }
         }
 
         return intelliSenseMode;
@@ -156,69 +187,72 @@ export module cppproject {
     }
 
     function getCStandard(descriptor: utils.BazelDescriptor): Configuration["cStandard"] {
-        for (const option of descriptor.cc.c_option) {
-            switch (option) {
-                case "-ansi":
-                case "-std=c89":
-                case "-std=c90":
-                case "-std=gnu89":
-                case "-std=gnu90":
-                case "-std=iso9899:1990":
-                case "-std=iso9899:199409":
-                    return "c89";
-                
-                case "-std=gnu99":
-                case "-std=gnu9x":
-                case "-std=c99":
-                case "-std=c9x":
-                case "-std=iso9899:1999":
-                case "-std=iso9899:199x":
-                    return "c99";
+        if (descriptor.cc.c_option) {
+            for (const option of descriptor.cc.c_option) {
+                switch (option) {
+                    case "-ansi":
+                    case "-std=c89":
+                    case "-std=c90":
+                    case "-std=gnu89":
+                    case "-std=gnu90":
+                    case "-std=iso9899:1990":
+                    case "-std=iso9899:199409":
+                        return "c89";
+                    
+                    case "-std=gnu99":
+                    case "-std=gnu9x":
+                    case "-std=c99":
+                    case "-std=c9x":
+                    case "-std=iso9899:1999":
+                    case "-std=iso9899:199x":
+                        return "c99";
 
-                case "-std=iso9899:2011":
-                case "-std=c1x":
-                case "-std=c11":
-                case "-std=gnu11":
-                case "-std=gnu1x":
-                    return "c11"
+                    case "-std=iso9899:2011":
+                    case "-std=c1x":
+                    case "-std=c11":
+                    case "-std=gnu11":
+                    case "-std=gnu1x":
+                        return "c11"
 
-                case "-std=c17":
-                case "-std=iso9899:2017":
-                    return "c11";
+                    case "-std=c17":
+                    case "-std=iso9899:2017":
+                        return "c11";
+                }
             }
         }
         return undefined;
     }
 
     function getCppStandard(descriptor: utils.BazelDescriptor): Configuration["cppStandard"] {
-        //-std=c++0x
-        for (const option of descriptor.cc.cpp_option) {
-            // https://gcc.gnu.org/onlinedocs/gcc-6.2.0/gcc/C-Dialect-Options.html
-            switch (option) {
-                case "-std=gnu++98":
-                case "-std=c++98":
-                    return "c++98";
+        if (descriptor.cc.cpp_option) {
+            for (const option of descriptor.cc.cpp_option) {
+                // https://gcc.gnu.org/onlinedocs/gcc-6.2.0/gcc/C-Dialect-Options.html
+                switch (option) {
+                    case "-std=gnu++98":
+                    case "-std=c++98":
+                        return "c++98";
 
-                case "-std=c++03":
-                    return "c++03";
+                    case "-std=c++03":
+                        return "c++03";
 
-                case "-std=gnu++11":
-                case "-std=gnu++0x":
-                case "-std=c++11":
-                case "-std=c++0x":
-                    return "c++11";
+                    case "-std=gnu++11":
+                    case "-std=gnu++0x":
+                    case "-std=c++11":
+                    case "-std=c++0x":
+                        return "c++11";
 
-                case "-std=gnu++14":
-                case "-std=gnu++1y":
-                case "-std=c++14":
-                case "-std=c++1y":
-                    return "c++14";
+                    case "-std=gnu++14":
+                    case "-std=gnu++1y":
+                    case "-std=c++14":
+                    case "-std=c++1y":
+                        return "c++14";
 
-                case "-std=gnu++17":
-                case "-std=gnu++1z":
-                case "-std=c++17":
-                case "-std=c++1z":
-                    return "c++17";
+                    case "-std=gnu++17":
+                    case "-std=gnu++1z":
+                    case "-std=c++17":
+                    case "-std=c++1z":
+                        return "c++17";
+                }
             }
         }
         return undefined;
