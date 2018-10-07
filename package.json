@@ -21,7 +21,7 @@
         "onCommand:bazel.runTarget",
         "onCommand:bazel.clean",
         "onCommand:bazel.createCppProps",
-        "workspaceContains:WORKSPACE",
+        "workspaceContains:**/WORKSPACE",
         "workspaceContains:BUILD"
     ],
     "main": "./out/src/extension",

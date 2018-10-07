@@ -55,11 +55,11 @@ export module bazel {
 
     /**
      * Execute a Bazel query from a specific place.
-     * @param wd Working directory from where the bazel command must be launch.
+     * @param bzlWs Bazel working directory.
      * @param query Bazel query to execute.
      * @returns List of all rules that have been found.
      */
-    export function queryBzl(wd: string, query: string = '...'): Promise<BazelQueryItem[]> {
+    export function queryBzl(bzlWs: utils.BazelWorkspaceProperties, query: string = '...'): Promise<BazelQueryItem[]> {
         const excludedPackagesStr = excludedPackages.join(',');
         // Execute the bazel query
         let proc = exec(
@@ -71,7 +71,7 @@ export module bazel {
                 `--deleted_packages=${excludedPackagesStr}`,
                 '--output', 'label_kind'
             ],
-            wd
+            bzlWs
         );
 
         // Get the bazel query output
@@ -94,7 +94,7 @@ export module bazel {
             
             return queries;
         }).catch((error: Error) => {
-            parseErrorDiagnostics(wd, error);
+            parseErrorDiagnostics(bzlWs, error);
             return Promise.reject(error);
         });
     }
@@ -112,7 +112,7 @@ export module bazel {
                 '--output_groups=descriptor_files',
                 target
             ],
-            bzlWs.workspaceFolder.uri.fsPath
+            bzlWs
         ).then(child => {
             // Funny fact, for this command the output go on the stderr
             const stderr = child.stderr.trim();
@@ -162,19 +162,22 @@ export module bazel {
     /**
      * Execute a bazel command with the following args from the specified directory.
      * @param args Arguments for the bazel command.
-     * @param wd Working directory from where the bazel command must be execute.
+     * @param bzlWd Working directory from where the bazel command must be execute.
      * @returns The bazel stderr and stdout.
      */
-    function exec(args: string[], wd: string): Promise<{ stdout:string, stderr:string }> {
-        return child_proc.exec(`"${bazelExecutablePath}" ${args.join(' ')}`, { cwd: wd });
+    function exec(args: string[], bzlWd: utils.BazelWorkspaceProperties): Promise<{ stdout:string, stderr:string }> {
+        return child_proc.exec(
+            `"${bazelExecutablePath}" ${args.join(' ')}`,
+            { cwd: bzlWd.bazelWorkspacePath }
+        );
     }
 
     /**
      * 
-     * @param wd 
+     * @param bzlWs 
      * @param error 
      */
-    function parseErrorDiagnostics(wd: string, error: Error) {
+    function parseErrorDiagnostics(bzlWs: utils.BazelWorkspaceProperties, error: Error) {
         const errors = error.toString().split("\n");
         const errorRegex = /ERROR: ((\w:)?([^:]*)):(\d+):(\d+): (.*)/;
 
@@ -194,7 +197,7 @@ export module bazel {
                 let {dispose} = Workspace.onDidSaveTextDocument(txtDoc => {
                     bazelDiagnosticsCollection.clear();
                     dispose();
-                    bazel.queryBzl(wd, '...');
+                    bazel.queryBzl(bzlWs, '...');
                 });
 
                 let diagnostics = bazelDiagnosticsCollection.get(fileUri) || [];

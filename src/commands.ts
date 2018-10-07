@@ -10,7 +10,8 @@ import {
     Terminal,
     WorkspaceFoldersChangeEvent,
     WorkspaceFolder,
-    ViewColumn
+    ViewColumn,
+    RelativePattern
 } from 'vscode';
 import { bazel } from './bazel';
 import { cppproject } from './cppproject';
@@ -74,7 +75,7 @@ export module commands {
             if (this.terminal === null) {
                 this.terminal = Window.createTerminal({
                     name: `bazel - ${this.workspaceFolder.name}`,
-                    cwd: this.workspaceFolder.uri.fsPath
+                    cwd: this.bazelWorkspacePath
                 });
                 // For disposal on deactivation
                 extensionContext.subscriptions.push(this.terminal);
@@ -179,19 +180,25 @@ export module commands {
      * @see {@link tryInitFromBuildFile}
      */
     async function tryInitWorkspace(workspaceFolder: WorkspaceFolder): Promise<boolean> {
+        const wsRelativePattern = new RelativePattern(workspaceFolder, `**/${BAZEL_WORKSPACE_FILE}`);
+        const wsExcludeBzlDir = new RelativePattern(workspaceFolder, '**/bazel-*');
+
         let initialized = false;
 
-        let workspacePath = path.join(workspaceFolder.uri.fsPath, BAZEL_WORKSPACE_FILE);
-        if (fs.existsSync(workspacePath)) {
-            // The workspace contains a WORKSPACE file init bazel
-            await setupWorkspace(workspaceFolder.uri.fsPath, extensionContext.extensionPath);
-            bazelWorkspaces.push(
-                new BazelWorkspace({
-                    workspaceFolder: workspaceFolder,
-                    bazelWorkspacePath: workspaceFolder.uri.fsPath,
-                    aspectPath: path.join(BAZEL_EXT_DEST_BASE_PATH, BAZEL_ASPECT_FILE)
-                })
-            );
+        let workspacesPath = await Workspace.findFiles(wsRelativePattern, wsExcludeBzlDir);
+        if (workspacesPath.length > 0) {
+            for (const workspacePath of workspacesPath) {
+                const bzlWsDirPath = path.dirname(workspacePath.fsPath);
+                // The workspace contains a WORKSPACE file init bazel
+                await setupWorkspace(bzlWsDirPath, extensionContext.extensionPath);
+                bazelWorkspaces.push(
+                    new BazelWorkspace({
+                        workspaceFolder: workspaceFolder,
+                        bazelWorkspacePath: bzlWsDirPath,
+                        aspectPath: path.join(BAZEL_EXT_DEST_BASE_PATH, BAZEL_ASPECT_FILE)
+                    })
+                );
+            }
             initialized = true;
         } else {
             // The workspace does not contains a WORKSPACE file try 
@@ -452,7 +459,7 @@ export module commands {
      * @returns
      */
     function quickPickQuery(bzlWs: BazelWorkspace, query: string = '...', options?: QuickPickOptions): Thenable<BazelQueryQuickPickItem | undefined> {
-        let quickPickQuery = bazel.queryBzl(bzlWs.workspaceFolder.uri.fsPath, query).then(
+        let quickPickQuery = bazel.queryBzl(bzlWs, query).then(
             queryItems => {
                 if (rawLabelDisplay) {
                     return queryItems.map(rawQuickPickItem);
