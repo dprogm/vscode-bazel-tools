@@ -124,6 +124,30 @@ export module bazel {
         });
     }
 
+    export function depGraph(
+        bzlWs: utils.BazelWorkspaceProperties, 
+        target: string, 
+        noImplicitDeps: boolean = false
+    ) {
+        let args = [
+            "query",
+            "--package_path",
+            `%workspace%:${bazelExecutablePath}/base_workspace`
+        ];
+
+        if (noImplicitDeps) {
+            args.push('--noimplicit_deps');
+        }
+
+        args.push(
+            `'deps(${target})'`,
+            "--output",
+            "graph"
+        );
+
+        return exec(args, bzlWs).then(output => output.stdout);
+    }
+
     /**
      * Execute a bazel build command in the given terminal.
      * @param terminal Terminal to use for executing the build command.

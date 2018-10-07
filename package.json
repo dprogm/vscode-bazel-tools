@@ -10,7 +10,7 @@
     },
     "license": "MIT",
     "engines": {
-        "vscode": "^1.20.0"
+        "vscode": "^1.26.0"
     },
     "categories": [
         "Other"
@@ -45,6 +45,11 @@
             {
                 "command": "bazel.createCppProps",
                 "title": "Create C++ Project",
+                "category": "Bazel"
+            },
+            {
+                "command": "bazel.showDepGraph",
+                "title": "Show dependencies graph",
                 "category": "Bazel"
             }
         ],
@@ -94,7 +99,7 @@
     },
     "devDependencies": {
         "typescript": "^3.0.3",
-        "vscode": "^1.1.6",
+        "vscode": "^1.1.21",
         "eslint": "^4.11.0",
         "json-schema-to-typescript": "^5.5.0",
         "@types/fs-extra": "^5.0.1",
@@ -104,6 +109,8 @@
     },
     "dependencies": {
         "child-process-async": "^1.0.1",
+        "d3": "^5.7.0",
+        "d3-graphviz": "^2.6.0",
         "fs-extra": "^5.0.0",
         "node-exec-promise": "^1.0.2"
     }

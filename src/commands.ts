@@ -1,9 +1,7 @@
 import {
     workspace as Workspace,
     window as Window,
-    commands as Commands,
     QuickPickOptions,
-    Uri,
     QuickPickItem,
     ExtensionContext,
     WorkspaceConfiguration,
@@ -18,7 +16,6 @@ import { cppproject } from './cppproject';
 import * as path from 'path';
 import * as fs from 'fs-extra';
 import { utils } from './utils';
-
 
 export module commands {
     interface BazelQueryQuickPickItem extends QuickPickItem {
@@ -420,8 +417,34 @@ export module commands {
      * @param ctx 
      */
     export async function bzlShowDepGraph(ctx: ExtensionContext) {
-        let uri = Uri.parse('bazel_dep_graph://');
-        Commands.executeCommand('vscode.previewHtml', uri, ViewColumn.Two, 'Graph View');
+        const bzlWs = await pickWorkspace();
+        if (bzlWs !== undefined) {
+            return quickPickQuery(bzlWs, '...', {
+                matchOnDescription: true,
+                matchOnDetail: true,
+                placeHolder: 'Trace dependencies graph'
+            }).then(async target => {
+                if (target !== undefined) {
+                    let graph = await bazel.depGraph(bzlWs, target.query_item.label);
+                    const tmpl = ctx.asAbsolutePath('res/graph.tmpl.html');
+                    let tmplContent = await fs.readFile(tmpl, {encoding: 'utf-8'});
+                    tmplContent =
+                        tmplContent
+                            .replace('%MY_GRAPH%', graph)
+                            .replace(new RegExp('%EXT_PATH%', 'g'), ctx.extensionPath);
+                    const panel = Window.createWebviewPanel(
+                        'bazel',                                 // view type
+                        `Graph View ${target.query_item.label}`, // tile
+                        ViewColumn.One,                          // view
+                        { enableScripts: true }                  // options
+                    );
+                    panel.webview.html = tmplContent;
+                }
+            });
+        }
+        
+        //let uri = Uri.parse('bazel_dep_graph://');
+        //Commands.executeCommand('vscode.previewHtml', uri, ViewColumn.Two, 'Graph View');
     }
 
     /**

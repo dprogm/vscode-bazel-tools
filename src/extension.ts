@@ -27,6 +27,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 cmd_name: 'Bazel C++ Project',
                 cmd_desc: 'Create a c_cpp_properties.json project file',
                 cmd_func: commands.bzlCreateCppProps
+            },
+            {
+                cmd_id: 'bazel.showDepGraph',
+                cmd_name: 'Show dependencies graph',
+                cmd_desc: 'Show a tree of dependencies',
+                cmd_func: commands.bzlShowDepGraph
             }
         ];
 
