@@ -109,9 +109,8 @@
     },
     "dependencies": {
         "child-process-async": "^1.0.1",
-        "d3": "^5.7.0",
-        "d3-graphviz": "^2.6.0",
         "fs-extra": "^5.0.0",
-        "node-exec-promise": "^1.0.2"
+        "node-exec-promise": "^1.0.2",
+        "viz.js": "^2.0.0"
     }
 }

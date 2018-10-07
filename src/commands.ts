@@ -16,6 +16,8 @@ import { cppproject } from './cppproject';
 import * as path from 'path';
 import * as fs from 'fs-extra';
 import { utils } from './utils';
+const Viz = require('viz.js');
+const { Module, render } = require('viz.js/full.render.js');
 
 export module commands {
     interface BazelQueryQuickPickItem extends QuickPickItem {
@@ -425,20 +427,16 @@ export module commands {
                 placeHolder: 'Trace dependencies graph'
             }).then(async target => {
                 if (target !== undefined) {
-                    let graph = await bazel.depGraph(bzlWs, target.query_item.label);
-                    const tmpl = ctx.asAbsolutePath('res/graph.tmpl.html');
-                    let tmplContent = await fs.readFile(tmpl, {encoding: 'utf-8'});
-                    tmplContent =
-                        tmplContent
-                            .replace('%MY_GRAPH%', graph)
-                            .replace(new RegExp('%EXT_PATH%', 'g'), ctx.extensionPath);
+                    const graph = await bazel.depGraph(bzlWs, target.query_item.label);
+                    let viz = new Viz({ Module, render });
+                    let svgGraph = await viz.renderString(graph);
                     const panel = Window.createWebviewPanel(
                         'bazel',                                 // view type
                         `Graph View ${target.query_item.label}`, // tile
                         ViewColumn.One,                          // view
                         { enableScripts: true }                  // options
                     );
-                    panel.webview.html = tmplContent;
+                    panel.webview.html = svgGraph;
                 }
             });
         }
