@@ -1,7 +1,6 @@
 import {
     workspace as Workspace,
     WorkspaceConfiguration,
-    Terminal,
     DiagnosticCollection,
     languages,
     Diagnostic,
@@ -10,7 +9,8 @@ import {
     TaskGroup,
     ProcessExecution,
     Task,
-    TaskDefinition
+    TaskDefinition,
+    tasks
 } from 'vscode';
 const child_proc = require('child-process-async');
 import * as path from 'path';
@@ -155,28 +155,65 @@ export module bazel {
     /**
      * @deprecated use tasks now
      * Execute a bazel build command in the given terminal.
-     * @param terminal Terminal to use for executing the build command.
+     * @param bzlWs Bazel workspace info.
      * @param target Target that must be build.
      */
-    export function build(terminal: Terminal, target: string): void {
-        runInTerminal(terminal, [bazelExecutablePath, 'build', target]);
+    export function build(bzlWs: utils.BazelWorkspaceProperties, target: string) {
+        let task = new Task(
+            { type: 'bazel' },      //taskDefinition
+            bzlWs.workspaceFolder,  // target
+            `bazel (${target})`,    // name
+            'bazel',                // source
+            new ProcessExecution(   // execution
+                bazelExecutablePath,
+                ['build', target],
+                { cwd: bzlWs.bazelWorkspacePath }
+            )
+        );
+
+        return tasks.executeTask(task);
     }
 
     /**
      * Execute a bazel run command in the given terminal.
-     * @param terminal Terminal to use for executing the run command.
+     * @param bzlWs Bazel workspace info.
      * @param target Target that must be run.
      */
-    export function run(terminal: Terminal, target: string): void {
-        runInTerminal(terminal, [bazelExecutablePath, 'run', target]);
+    export function run(bzlWs: utils.BazelWorkspaceProperties, target: string) {
+        let task = new Task(
+            { type: 'bazel' },      //taskDefinition
+            bzlWs.workspaceFolder,  // target
+            `bazel (${target})`,    // name
+            'bazel',                // source
+            new ProcessExecution(   // execution
+                bazelExecutablePath,
+                ['run', target],
+                { cwd: bzlWs.bazelWorkspacePath }
+            )
+        );
+
+        return tasks.executeTask(task);
     }
 
     /**
+     * @deprecated use task instead
      * Execute a bazel clean command in the given terminal.
-     * @param terminal Terminal to use for executing the clean command.
+     * @param bzlWs Bazel workspace info.
      */
-    export function clean(terminal: Terminal) {
-        runInTerminal(terminal, [bazelExecutablePath, 'clean']);
+    export function clean(bzlWs: utils.BazelWorkspaceProperties) {
+        let task = new Task(
+            { type: 'bazel' },      //taskDefinition
+            bzlWs.workspaceFolder,  // target
+            'bazel (clean)',        // name
+            'bazel',                // source
+            new ProcessExecution(   // execution
+                bazelExecutablePath,
+                ['clean'],
+                { cwd: bzlWs.bazelWorkspacePath }
+            )
+        );
+
+        return tasks.executeTask(task);
     }
 
     interface BazelTaskDefinition extends TaskDefinition {
@@ -277,16 +314,6 @@ export module bazel {
         );
 
         return task;
-    }
-
-    /**
-     * @deprecated use tasks now
-     * Execute the given command in the terminal.
-     * @param terminal Terminal to use for executing the command.
-     * @param command Command to execute.
-     */
-    function runInTerminal(terminal: Terminal, command: string[]): void {
-        terminal.sendText(command.join(' '), true);
     }
 
     /**

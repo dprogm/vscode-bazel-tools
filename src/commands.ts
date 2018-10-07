@@ -5,7 +5,6 @@ import {
     QuickPickItem,
     ExtensionContext,
     WorkspaceConfiguration,
-    Terminal,
     WorkspaceFoldersChangeEvent,
     WorkspaceFolder,
     ViewColumn,
@@ -39,10 +38,6 @@ export module commands {
         public readonly bazelWorkspacePath: string;
         // Path to the installed aspect file to generate descriptor files.
         public readonly aspectPath: string;
-        /** @deprecated use tasks now
-         * Associated terminal to the workspace.
-         */
-        private terminal: Terminal | null = null;
         public tasks?: Task[];
 
         /**
@@ -53,40 +48,6 @@ export module commands {
             this.workspaceFolder = properties.workspaceFolder;
             this.bazelWorkspacePath = properties.bazelWorkspacePath,
             this.aspectPath = properties.aspectPath;
-        }
-
-        /**
-         * @deprecated use tasks now
-         * Determine if a terminal is already associated with this workspace.
-         * @returns true if this workspace has already a terminal, false otherwise.
-         */
-        public hasTerminal(): boolean {
-            return this.terminal !== null;
-        }
-
-        /**
-         * @deprecated use tasks now
-         * This function must be call only on a terminal deletion.
-         */
-        public resetTerminal() {
-            return this.terminal = null;
-        }
-
-        /**
-         * @deprecated use tasks now
-         * Create or get the associated terminal of the current bazel workspace.
-         * @returns the associated terminal.
-         */
-        public getTerminal(): Terminal {
-            if (this.terminal === null) {
-                this.terminal = Window.createTerminal({
-                    name: `bazel - ${this.workspaceFolder.name}`,
-                    cwd: this.bazelWorkspacePath
-                });
-                // For disposal on deactivation
-                extensionContext.subscriptions.push(this.terminal);
-            }
-            return this.terminal;
         }
     }
 
@@ -161,15 +122,6 @@ export module commands {
         Workspace.onDidChangeConfiguration(configurationChangeEvent => {
             if (configurationChangeEvent.affectsConfiguration('bazel')) {
                 loadConfiguration(Workspace.getConfiguration('bazel'));
-            }
-        });
-        // @deprecated
-        Window.onDidCloseTerminal(terminal => {
-            for (const bzlWs of bazelWorkspaces) {
-                if (bzlWs.hasTerminal() && bzlWs.getTerminal().processId === terminal.processId) {
-                    bzlWs.resetTerminal();
-                    break;
-                }
             }
         });
         Workspace.onDidSaveTextDocument(textDocument => {
@@ -392,9 +344,7 @@ export module commands {
                 placeHolder: 'bazel build'
             }).then(target => {
                 if (target !== undefined) {
-                    let terminal = bzlWs.getTerminal()
-                    bazel.build(terminal, target.query_item.label);
-                    terminal.show();
+                    bazel.build(bzlWs, target.query_item.label);
                 }
             });
         }
@@ -413,9 +363,7 @@ export module commands {
                 placeHolder: 'Run bazel binary target (*_binary)'
             }).then(target => {
                 if (target !== undefined) {
-                    let terminal = bzlWs.getTerminal();
-                    bazel.run(terminal, target.query_item.label);
-                    terminal.show();
+                    bazel.run(bzlWs, target.query_item.label);
                 }
             });
         }
@@ -428,9 +376,7 @@ export module commands {
     export async function bzlClean(ctx: ExtensionContext) {
         let bzlWs = await pickWorkspace();
         if (bzlWs !== undefined) {
-            let terminal = bzlWs.getTerminal()
-            bazel.clean(terminal);
-            terminal.show();
+            bazel.clean(bzlWs);
         }
     }
 
