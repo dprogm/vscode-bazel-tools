@@ -81,6 +81,7 @@ export module cppproject {
                 configuration.cppStandard = getCppStandard(descriptor);
                 configuration.includePath = Array.of(...includes);
                 configuration.defines = Array.of(...defines);
+                configuration.compilerPath = descriptor.cc.cpp_executable;
                 if (configuration.browse === undefined) {
                     configuration.browse = {
                         limitSymbolsToIncludedHeaders: true,
