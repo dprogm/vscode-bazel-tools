@@ -201,19 +201,7 @@ export module bazel {
      * @param bzlWs Bazel workspace info.
      */
     export function clean(bzlWs: utils.BazelWorkspaceProperties) {
-        let task = new Task(
-            { type: 'bazel' },      //taskDefinition
-            bzlWs.workspaceFolder,  // target
-            'bazel (clean)',        // name
-            'bazel',                // source
-            new ProcessExecution(   // execution
-                bazelExecutablePath,
-                ['clean'],
-                { cwd: bzlWs.bazelWorkspacePath }
-            )
-        );
-
-        return tasks.executeTask(task);
+        return tasks.executeTask(cleanTask(bzlWs));
     }
 
     interface BazelTaskDefinition extends TaskDefinition {
@@ -254,18 +242,24 @@ export module bazel {
     }
 
     function toTasks(bzlWs: utils.BazelWorkspaceProperties, bazelQueryItem: BazelQueryItem[]): Task[] {
-        let tasks = bazelQueryItem.map(item => {
-            const name = `bazel (${item.label})`;
+        let tasks: Task[] = bazelQueryItem.map(item => {
             const source = 'bazel';
-            let taskGroup: TaskGroup | undefined = undefined;
-            let command = 'build';
+            let name = ` (${item.label})`;
+            let taskGroup: TaskGroup;
+            let command: string;
 
             if (item.kind.includes('test')) {
                 taskGroup = TaskGroup.Test;
                 command = 'test';
+                name = "test" + name;
+            } else if (item.kind === "container_push") {
+                taskGroup = TaskGroup.Build;
+                command = 'run';
+                name = "run" + name;
             } else {
                 taskGroup = TaskGroup.Build;
                 command = 'build';
+                name = "build" + name;
             }
 
 
@@ -293,16 +287,16 @@ export module bazel {
         // Add special tasks
         tasks.push(cleanTask(bzlWs));
 
-        return tasks;
+        return tasks.sort((t1, t2) => t1.name.localeCompare(t2.name));
     }
 
     function cleanTask(bzlWs: utils.BazelWorkspaceProperties) {
-        const name = 'bazel (clean)';
+        const name = 'clean';
         const source = 'bazel';
 
         let bzlTaskDefinition: BazelTaskDefinition = {
             type: 'bazel',
-            command: 'clean'
+            command: 'clean',
         };
 
         let task = new Task(bzlTaskDefinition, bzlWs.workspaceFolder, name, source);
