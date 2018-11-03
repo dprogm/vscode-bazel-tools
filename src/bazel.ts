@@ -15,7 +15,7 @@ import {
 const child_proc = require('child-process-async');
 import * as path from 'path';
 import { utils } from './utils';
-import { Uri } from 'vscode';
+import { Uri, WorkspaceFolder } from 'vscode';
 
 
 export module bazel {
@@ -242,52 +242,107 @@ export module bazel {
     }
 
     function toTasks(bzlWs: utils.BazelWorkspaceProperties, bazelQueryItem: BazelQueryItem[]): Task[] {
-        let tasks: Task[] = bazelQueryItem.map(item => {
-            const source = 'bazel';
-            let name = ` (${item.label})`;
-            let taskGroup: TaskGroup;
-            let command: string;
-
+        let tasks: Task[] = [];
+        for (const item of bazelQueryItem) {
             if (item.kind.includes('test')) {
-                taskGroup = TaskGroup.Test;
-                command = 'test';
-                name = "test" + name;
+                const task = createTask(
+                    `test ${item.label}`,     // name
+                    'test',                   // command
+                    TaskGroup.Test,           // task group
+                    item,                     // query item
+                    bzlWs.bazelWorkspacePath, // working directory
+                    bzlWs.workspaceFolder
+                );
+                tasks.push(task);
             } else if (item.kind === "container_push") {
-                taskGroup = TaskGroup.Build;
-                command = 'run';
-                name = "run" + name;
+                const task = createTask(
+                    `run ${item.label}`,      // name
+                    'run',                    // command
+                    TaskGroup.Build,          // task group
+                    item,                     // query item
+                    bzlWs.bazelWorkspacePath, // working directory
+                    bzlWs.workspaceFolder
+                );
+                tasks.push(task);
             } else {
-                taskGroup = TaskGroup.Build;
-                command = 'build';
-                name = "build" + name;
+                const task = createTask(
+                    `build ${item.label}`,    // name
+                    'build',                  // command
+                    TaskGroup.Build,          // task group
+                    item,                     // query item
+                    bzlWs.bazelWorkspacePath, // working directory
+                    bzlWs.workspaceFolder
+                );
+                tasks.push(task);
+
+                if (item.kind.endsWith('_binary')) {
+                    const runTask = createTask(
+                        `run ${item.label}`,      // name
+                        'run',                    // command
+                        TaskGroup.Build,          // task group
+                        item,                     // query item
+                        bzlWs.bazelWorkspacePath, // working directory
+                        bzlWs.workspaceFolder
+                    );
+                    tasks.push(runTask);
+                }
             }
-
-
-            let bzlTaskDefinition: BazelTaskDefinition = {
-                type: 'bazel',
-                target: item.label,
-                kind: item.kind,
-                command: command
-            };
-
-            
-            let task = new Task(bzlTaskDefinition, bzlWs.workspaceFolder, name, source);
-            task.group = taskGroup;
-            task.execution = new ProcessExecution(
-                bazelExecutablePath,
-                [bzlTaskDefinition.command, bzlTaskDefinition.target || "..."],
-                { cwd: bzlWs.bazelWorkspacePath }
-            );
-
-            //task.problemMatchers = [];
-
-            return task;
-        });
+        }
 
         // Add special tasks
+        // clean
         tasks.push(cleanTask(bzlWs));
+        // build all
+        tasks.push(
+            createTask(
+                'build all', 
+                'build', 
+                TaskGroup.Build, 
+                {kind: 'special', label: '...'}, 
+                bzlWs.bazelWorkspacePath,
+                bzlWs.workspaceFolder
+            )
+        );
+        // test all
+        tasks.push(
+            createTask(
+                'test all', 
+                'test', 
+                TaskGroup.Test, 
+                {kind: 'special', label: '...'}, 
+                bzlWs.bazelWorkspacePath,
+                bzlWs.workspaceFolder
+            )
+        );
 
         return tasks.sort((t1, t2) => t1.name.localeCompare(t2.name));
+    }
+
+    function createTask(
+        name: string, 
+        command: string, 
+        taskGroup: TaskGroup, 
+        queryItem: BazelQueryItem,
+        wd: string,
+        workspaceFolder: WorkspaceFolder
+    ): Task {
+        let bzlTaskDefinition: BazelTaskDefinition = {
+            type: 'bazel',
+            target: queryItem.label,
+            kind: queryItem.kind,
+            command: command
+        };
+
+        
+        let task = new Task(bzlTaskDefinition, workspaceFolder, name, 'bazel');
+        task.group = taskGroup;
+        task.execution = new ProcessExecution(
+            bazelExecutablePath,
+            [bzlTaskDefinition.command, bzlTaskDefinition.target || "..."],
+            { cwd: wd }
+        );
+
+        return task;
     }
 
     function cleanTask(bzlWs: utils.BazelWorkspaceProperties) {
