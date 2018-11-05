@@ -16,6 +16,8 @@ import { cppproject } from './cppproject';
 import * as path from 'path';
 import * as fs from 'fs-extra';
 import { utils } from './utils';
+import { BazelWorkspaceProperties } from './descriptor';
+import { javaproject } from './javaproject';
 const Viz = require('viz.js');
 const { Module, render } = require('viz.js/full.render.js');
 
@@ -31,7 +33,7 @@ export module commands {
     /**
      * Bazel workspace information.
      */
-    class BazelWorkspace implements utils.BazelWorkspaceProperties {
+    class BazelWorkspace implements BazelWorkspaceProperties {
         // VSCode workspace folder reference.
         public readonly workspaceFolder: WorkspaceFolder;
         // Path to the bazel WORKSPACE file.
@@ -44,7 +46,7 @@ export module commands {
          * Constructor.
          * @param properties Properties information to initialize the bazel workspace.
          */
-        constructor(properties: utils.BazelWorkspaceProperties) {
+        constructor(properties: BazelWorkspaceProperties) {
             this.workspaceFolder = properties.workspaceFolder;
             this.bazelWorkspacePath = properties.bazelWorkspacePath,
             this.aspectPath = properties.aspectPath;
@@ -253,27 +255,36 @@ export module commands {
      */
     async function setupWorkspace(wsRoot: string, extensionPath: string): Promise<void> {
         try {
-            const exists = await fs.exists(path.join(wsRoot, BAZEL_EXT_DEST_BASE_PATH, BAZEL_BUILD_FILE));
-            
             const workspaceDestinationPath = path.join(wsRoot, BAZEL_EXT_DEST_BASE_PATH);
-            const bazelSrcAspectPath = path.join(extensionPath, BAZEL_EXT_RES_BASE_PATH, BAZEL_ASPECT_FILE);
-            const bazelDestAspectPath = path.join(workspaceDestinationPath, BAZEL_ASPECT_FILE);
             
-            if (!exists) {
-                await fs.mkdirs(workspaceDestinationPath);
-                await fs.writeFile(path.join(workspaceDestinationPath, BAZEL_BUILD_FILE), '');
-                await fs.copy(bazelSrcAspectPath, bazelDestAspectPath, {preserveTimestamps: true});
-            } else {
-                const srcStat = await fs.stat(bazelSrcAspectPath);
-                const destStat = await fs.stat(bazelDestAspectPath);
+            let elements = [
+                fs.mkdirs(workspaceDestinationPath)
+                    .catch(err => console.warn(err.toString())),
+                fs.writeFile(path.join(workspaceDestinationPath, BAZEL_BUILD_FILE), ''),
+                ...await copyBzlResources(workspaceDestinationPath, extensionPath)
+            ];
 
-                if (srcStat.mtime.getTime() !== destStat.mtime.getTime()) {
-                    await fs.copy(bazelSrcAspectPath, bazelDestAspectPath, {overwrite: true, preserveTimestamps: true});
-                }
+            for (const awaitableElt of elements) {
+                await awaitableElt;
             }
         } catch(err) {
             Window.showErrorMessage('Error during file i/o ' + err.toString());
         }
+    }
+
+    function copyBzlResources(workspaceDestinationPath: string, extensionPath: string) {
+        const bazelSrcAspectPath = path.join(extensionPath, BAZEL_EXT_RES_BASE_PATH);
+
+        return fs.readdir(bazelSrcAspectPath)
+            .then(entries => {
+                return entries
+                    .filter(entry => entry.endsWith('.bzl'))
+                    .map(async entry => await fs.copy(
+                            path.join(bazelSrcAspectPath, entry),       // source
+                            path.join(workspaceDestinationPath, entry), // destination
+                            {overwrite: true})                          // options
+                    );
+            });
     }
 
     /**
@@ -306,7 +317,7 @@ export module commands {
                 const target = await quickPickQuery(bzlWs, 'kind(cc_.*, deps(...))', {
                     matchOnDescription: true,
                     matchOnDetail: true,
-                    placeHolder: 'Generate cpp properties for target ...'
+                    placeHolder: 'Generate cpp properties for target...'
                 });
                 if (target !== undefined) {
                     // 1) Try to find all descriptor files the bazel
@@ -325,8 +336,47 @@ export module commands {
                     );
 
                     // 3) Cleanup all temporary descriptor files
+                    for (const descriptor of descriptors) {
+                        fs.unlink(descriptor);
+                    }
+                }
+            }
+        } catch (err) {
+            console.log(err.toString());
+        }
+    }
+
+    export async function createJavaProject(): Promise<void> {
+        try {
+            const bzlWs = await pickWorkspace();
+            if (bzlWs !== undefined) {
+                // For java project we are only
+                // interested in java targets.
+                const target = await quickPickQuery(bzlWs, 'kind(java_.*, deps(...))', {
+                    matchOnDescription: true,
+                    matchOnDetail: true,
+                    placeHolder: 'Generate java configuration files for target...'
+                });
+                if (target !== undefined) {
+                    // 1) Try to find all descriptor files the bazel
+                    //    aspect might have generated into the output
+                    //    directory 'bazel-bin'
+                    const descriptors = await bazel.buildDescriptor(bzlWs, target.query_item.label);
+
+                    // 2) Build absolute include paths based on the
+                    //    relative paths from the descriptors and
+                    //    the symlinked bazel workspace 'bazel-<root>'
+                    //    where root is the current working directory.
+                    javaproject.createJavaProject(
+                        bzlWs,
+                        target.query_item.label,
+                        descriptors
+                    );
+                    
+
+                    // 3) Cleanup all temporary descriptor files
                     //for (const descriptor of descriptors) {
-                       // fs.unlink(descriptor);
+                    //    fs.unlink(descriptor);
                     //}
                 }
             }
