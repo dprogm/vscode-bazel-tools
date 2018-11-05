@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { commands } from './commands';
 
+let taskProvider: vscode.Disposable | undefined;
+
 export async function activate(context: vscode.ExtensionContext) {
     if (vscode.workspace.workspaceFolders !== undefined) {
         var availableCommands = [
@@ -48,10 +50,25 @@ export async function activate(context: vscode.ExtensionContext) {
                 addCommandButton(cmd_desc.cmd_id, cmd_desc.cmd_name, cmd_desc.cmd_desc);
             }
         });
+
+        if (is_workspace_available) {
+            taskProvider = vscode.tasks.registerTaskProvider('bazel', {
+                provideTasks: () => {
+                    return commands.provideTasks();
+                },
+                resolveTask(task: vscode.Task): vscode.Task | undefined {
+                    return undefined;// never call for the moment bazel.resolveTask(task);
+                }
+            });
+        }
     }
 }
 
-export function deactivate() {}
+export function deactivate() {
+    if (taskProvider) {
+        taskProvider.dispose();
+    }
+}
 
 function addCommandButton(cmd_id: string, cmd_name: string, cmd_desc: string) {
     let item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);

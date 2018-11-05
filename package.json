@@ -2,7 +2,7 @@
     "name": "vscode-bazel-tools",
     "displayName": "Bazel Tools",
     "description": "Bazel integration for Visual Studio Code",
-    "version": "0.0.9",
+    "version": "0.0.9-alpha",
     "publisher": "dprogm",
     "repository": {
         "type": "git",
@@ -17,6 +17,7 @@
     ],
     "icon": "img/bzl_icon_128.png",
     "activationEvents": [
+        "onCommand:workbench.action.tasks.runTask",
         "onCommand:bazel.buildTarget",
         "onCommand:bazel.runTarget",
         "onCommand:bazel.clean",
@@ -26,6 +27,32 @@
     ],
     "main": "./out/src/extension",
     "contributes": {
+        "taskDefinitions": [
+            {
+                "type": "bazel",
+                "required": [
+                    "command"
+                ],
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "The Bazel target"
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "bazel command, build, test, run..."
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "The Bazel target kind"
+                    },
+                    "args": {
+                        "type": "array",
+                        "description": "The Bazel args"
+                    }
+                }
+            }
+        ],
         "commands": [
             {
                 "command": "bazel.buildTarget",
@@ -83,6 +110,11 @@
                     "type": "string",
                     "default": "bazel",
                     "description": "Path to the bazel executable"
+                },
+                "bazel.autoDetect": {
+                    "type": "string",
+                    "default": "on",
+                    "description": "Enable or disable the task detection"
                 }
             }
         }
