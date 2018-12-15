@@ -256,10 +256,14 @@ export module commands {
     async function setupWorkspace(wsRoot: string, extensionPath: string): Promise<void> {
         try {
             const workspaceDestinationPath = path.join(wsRoot, BAZEL_EXT_DEST_BASE_PATH);
+
+            try {
+                await fs.mkdirs(workspaceDestinationPath);
+            } catch(err) {
+                if (err.code !== 'EEXIST') throw err;
+            }
             
             let elements = [
-                fs.mkdirs(workspaceDestinationPath)
-                    .catch(err => console.warn(err.toString())),
                 fs.writeFile(path.join(workspaceDestinationPath, BAZEL_BUILD_FILE), ''),
                 ...await copyBzlResources(workspaceDestinationPath, extensionPath)
             ];
@@ -535,7 +539,7 @@ export module commands {
             }
         ).catch((err: Error) => {
             Window.showQuickPick([], {placeHolder: '<ERROR>'});
-            Window.showErrorMessage("Failed to query bazel, take a look in the Problems view.");
+            Window.showErrorMessage("Failed to query bazel, take a look in the Problems view." + err.toString());
             return [];
         });
 
