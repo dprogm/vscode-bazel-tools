@@ -96,7 +96,7 @@ export module commands {
     export async function tryInit(ctx: ExtensionContext): Promise<boolean> {
         let initialized = false;
         extensionContext = ctx;
-    
+
         if (Workspace.workspaceFolders !== undefined) {
             Workspace.onDidChangeWorkspaceFolders(onChangeWorkspaceFolders);
 
@@ -110,7 +110,7 @@ export module commands {
             init();
             bazel.init();
         }
-    
+
         return initialized;
     }
 
@@ -141,10 +141,10 @@ export module commands {
 
     /**
      * Try to initialize the extension for a given workspace folder.
-     * 
+     *
      * This function will check in the following order:
      * * if the given workspace contains any bazel WORKSPACE file
-     *   ({@link BAZEL_WORKSPACE_FILE}). 
+     *   ({@link BAZEL_WORKSPACE_FILE}).
      * * if the given workspace contains any bazel BUILD file
      *   ({@link BAZEL_BUILD_FILES}).
      * @param workspaceFolder VSCode workspace folder.
@@ -173,7 +173,7 @@ export module commands {
             }
             initialized = true;
         } else {
-            // The workspace does not contains a WORKSPACE file try 
+            // The workspace does not contains a WORKSPACE file try
             // to found if there is any BUILD file
             initialized = await tryInitFromBuildFile(workspaceFolder);
         }
@@ -186,7 +186,7 @@ export module commands {
      * workspace folder. If one is found then it search for a WORKSPACE file
      * in the parent directories.
      * @param workspaceFolder VSCode workspace folder.
-     * @returns True if a bazel BUILD and it's associated WORKSPACE file has been 
+     * @returns True if a bazel BUILD and it's associated WORKSPACE file has been
      * found, false otherwise.
      */
     async function tryInitFromBuildFile(workspaceFolder: WorkspaceFolder): Promise<boolean> {
@@ -304,12 +304,12 @@ export module commands {
      * * Let the user choose a root target from which we
      *   are going to apply the aspect and gather all
      *   cxx include paths
-     * 
+     *
      * * Create the vs code file 'c_cpp_properties.json'
      *   into the destination folder and append the found
      *   include paths to that file under the section
      *   'includePath' as well as 'browse.path'
-     * 
+     *
      * @param ctx Extension context
      */
     export async function bzlCreateCppProps(ctx: ExtensionContext) : Promise<void> {
@@ -464,8 +464,8 @@ export module commands {
     }
 
     /**
-     * 
-     * @param ctx 
+     *
+     * @param ctx
      */
     export async function bzlShowDepGraph(ctx: ExtensionContext) {
         const bzlWs = await pickWorkspace();
@@ -495,7 +495,7 @@ export module commands {
     }
 
     /**
-     * 
+     *
      * @returns
      */
     async function pickWorkspace(): Promise<BazelWorkspace | undefined> {
@@ -522,10 +522,10 @@ export module commands {
     }
 
     /**
-     * 
-     * @param bzlWs 
-     * @param query 
-     * @param options 
+     *
+     * @param bzlWs
+     * @param query
+     * @param options
      * @returns
      */
     function quickPickQuery(bzlWs: BazelWorkspace, query: string = '...', options?: QuickPickOptions): Thenable<BazelQueryQuickPickItem | undefined> {
@@ -547,8 +547,8 @@ export module commands {
     }
 
     /**
-     * 
-     * @param queryItem 
+     *
+     * @param queryItem
      * @returns
      */
     function rawQuickPickItem(queryItem: bazel.BazelQueryItem): BazelQueryQuickPickItem {
@@ -561,14 +561,14 @@ export module commands {
     }
 
     /**
-     * 
-     * @param queryItem 
+     *
+     * @param queryItem
      * @returns
      */
     function parseQuickPickItem(queryItem: bazel.BazelQueryItem): BazelQueryQuickPickItem {
         const { ws, pkg, target } = utils.decomposeLabel(queryItem.label);
         const lang = utils.ruleKindToLanguage(queryItem.kind);
-    
+
         return {
             label: target,
             description: '',
