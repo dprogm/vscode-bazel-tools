@@ -14,8 +14,8 @@ import {
 } from 'vscode';
 const child_proc = require('child-process-async');
 import * as path from 'path';
-import { utils } from './utils';
 import { Uri, WorkspaceFolder } from 'vscode';
+import { BazelWorkspaceProperties } from './descriptor';
 
 
 export module bazel {
@@ -63,7 +63,7 @@ export module bazel {
      * @param query Bazel query to execute.
      * @returns List of all rules that have been found.
      */
-    export function queryBzl(bzlWs: utils.BazelWorkspaceProperties, query: string = '...'): Promise<BazelQueryItem[]> {
+    export function queryBzl(bzlWs: BazelWorkspaceProperties, query: string = '...'): Promise<BazelQueryItem[]> {
         const excludedPackagesStr = excludedPackages.join(',');
         // Execute the bazel query
         let proc = exec(
@@ -109,7 +109,7 @@ export module bazel {
      * @param target Target for with the descriptors files must be generate
      * @returns List of all descriptor file path relative to the target.
      */
-    export function buildDescriptor(bzlWs: utils.BazelWorkspaceProperties, target:string): Promise<string[]> {
+    export function buildDescriptor(bzlWs: BazelWorkspaceProperties, target:string): Promise<string[]> {
         return exec([
                 'build',
                 '--aspects', `${bzlWs.aspectPath}%vs_code_bazel_inspect`,
@@ -129,7 +129,7 @@ export module bazel {
     }
 
     export function depGraph(
-        bzlWs: utils.BazelWorkspaceProperties, 
+        bzlWs: BazelWorkspaceProperties, 
         target: string, 
         noImplicitDeps: boolean = false
     ) {
@@ -158,7 +158,7 @@ export module bazel {
      * @param bzlWs Bazel workspace info.
      * @param target Target that must be build.
      */
-    export function build(bzlWs: utils.BazelWorkspaceProperties, target: string) {
+    export function build(bzlWs: BazelWorkspaceProperties, target: string) {
         let task = new Task(
             { type: 'bazel' },      //taskDefinition
             bzlWs.workspaceFolder,  // target
@@ -179,7 +179,7 @@ export module bazel {
      * @param bzlWs Bazel workspace info.
      * @param target Target that must be run.
      */
-    export function run(bzlWs: utils.BazelWorkspaceProperties, target: string) {
+    export function run(bzlWs: BazelWorkspaceProperties, target: string) {
         let task = new Task(
             { type: 'bazel' },      //taskDefinition
             bzlWs.workspaceFolder,  // target
@@ -200,7 +200,7 @@ export module bazel {
      * Execute a bazel clean command in the given terminal.
      * @param bzlWs Bazel workspace info.
      */
-    export function clean(bzlWs: utils.BazelWorkspaceProperties) {
+    export function clean(bzlWs: BazelWorkspaceProperties) {
         return tasks.executeTask(cleanTask(bzlWs));
     }
 
@@ -228,7 +228,7 @@ export module bazel {
         return task;
     }
 
-    export function provideTasks(bzlWorkspace: utils.BazelWorkspaceProperties[]) {
+    export function provideTasks(bzlWorkspace: BazelWorkspaceProperties[]) {
         return bzlWorkspace.map(workspaceFolder =>
             queryBzl(workspaceFolder).then(
                 bazelQueryItem => {
@@ -241,7 +241,7 @@ export module bazel {
         );
     }
 
-    function toTasks(bzlWs: utils.BazelWorkspaceProperties, bazelQueryItem: BazelQueryItem[]): Task[] {
+    function toTasks(bzlWs: BazelWorkspaceProperties, bazelQueryItem: BazelQueryItem[]): Task[] {
         let tasks: Task[] = [];
         for (const item of bazelQueryItem) {
             if (item.kind.includes('test')) {
@@ -345,7 +345,7 @@ export module bazel {
         return task;
     }
 
-    function cleanTask(bzlWs: utils.BazelWorkspaceProperties) {
+    function cleanTask(bzlWs: BazelWorkspaceProperties) {
         const name = 'clean';
         const source = 'bazel';
 
@@ -371,7 +371,7 @@ export module bazel {
      * @param bzlWd Working directory from where the bazel command must be execute.
      * @returns The bazel stderr and stdout.
      */
-    function exec(args: string[], bzlWd: utils.BazelWorkspaceProperties): Promise<{ stdout:string, stderr:string }> {
+    function exec(args: string[], bzlWd: BazelWorkspaceProperties): Promise<{ stdout:string, stderr:string }> {
         return child_proc.exec(
             `"${bazelExecutablePath}" ${args.join(' ')}`,
             { cwd: bzlWd.bazelWorkspacePath }
@@ -383,7 +383,7 @@ export module bazel {
      * @param bzlWs 
      * @param error 
      */
-    function parseErrorDiagnostics(bzlWs: utils.BazelWorkspaceProperties, error: Error) {
+    function parseErrorDiagnostics(bzlWs: BazelWorkspaceProperties, error: Error) {
         const errors = error.toString().split('\n');
         const errorRegex = /ERROR: ((\w:)?([^:]*)):(\d+):(\d+): (.*)/;
 

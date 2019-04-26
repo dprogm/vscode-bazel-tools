@@ -2,9 +2,9 @@ import { window as Window,InputBoxOptions } from 'vscode';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as os from 'os';
-import { utils } from './utils';
+import { utils, capitalize } from './utils';
 import { CCppPropertiesSchema, Configurations } from './c_cpp_properties'
-import { capitalize } from './tools';
+import { BazelDescriptor, BazelWorkspaceProperties } from './descriptor';
 
 export module cppproject {
     type Configuration = Configurations[0];
@@ -19,7 +19,7 @@ export module cppproject {
      * @param resolveAllDescriptor 
      */
     export async function createCppProperties(
-                            bzlWs: utils.BazelWorkspaceProperties,
+                            bzlWs: BazelWorkspaceProperties,
                             target: string,
                             descriptorFiles: string[]
     ) {
@@ -36,7 +36,7 @@ export module cppproject {
                 descriptorFiles
             );
 
-            const descriptor: utils.BazelDescriptor = require(descriptorFiles[descriptorFiles.length - 1])
+            const descriptor: BazelDescriptor = require(descriptorFiles[descriptorFiles.length - 1])
             const dotVscodeDir = path.join(workspaceRootDir, '.vscode');
             const cppPropsFile = path.join(dotVscodeDir, 'c_cpp_properties.json');
             
@@ -98,7 +98,7 @@ export module cppproject {
     }
 
     function parseDescriptors(
-        bzlWs: utils.BazelWorkspaceProperties,
+        bzlWs: BazelWorkspaceProperties,
         descriptorFiles: string[]
     ) {
         let includePaths: Set<string> = new Set<string>(),
@@ -114,7 +114,7 @@ export module cppproject {
         }
 
         for (const descriptorFile of descriptorFiles) {
-            const descriptor: utils.BazelDescriptor = require(descriptorFile);
+            const descriptor: BazelDescriptor = require(descriptorFile);
             const bzlRuleKind = descriptor.kind;
             if (
                 bzlRuleKind.startsWith('cc_')      ||
@@ -152,7 +152,7 @@ export module cppproject {
         }
     }
 
-    function getIntelliSenseMode(descriptor: utils.BazelDescriptor) {
+    function getIntelliSenseMode(descriptor: BazelDescriptor) {
         let intelliSenseMode: Configuration["intelliSenseMode"] = '${default}';
 
         if (descriptor.cc.cpp_executable) {
@@ -187,7 +187,7 @@ export module cppproject {
         }
     }
 
-    function getCStandard(descriptor: utils.BazelDescriptor): Configuration["cStandard"] {
+    function getCStandard(descriptor: BazelDescriptor): Configuration["cStandard"] {
         if (descriptor.cc.c_option) {
             for (const option of descriptor.cc.c_option) {
                 switch (option) {
@@ -224,7 +224,7 @@ export module cppproject {
         return undefined;
     }
 
-    function getCppStandard(descriptor: utils.BazelDescriptor): Configuration["cppStandard"] {
+    function getCppStandard(descriptor: BazelDescriptor): Configuration["cppStandard"] {
         if (descriptor.cc.cpp_option) {
             for (const option of descriptor.cc.cpp_option) {
                 // https://gcc.gnu.org/onlinedocs/gcc-6.2.0/gcc/C-Dialect-Options.html

@@ -31,6 +31,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 cmd_func: commands.bzlCreateCppProps
             },
             {
+                cmd_id: 'bazel.createJavaProject',
+                cmd_name: 'Bazel Java Project',
+                cmd_desc: 'Create a .project/.classpath project file',
+                cmd_func: commands.createJavaProject
+            },
+            {
                 cmd_id: 'bazel.showDepGraph',
                 cmd_name: 'Show dependencies graph',
                 cmd_desc: 'Show a tree of dependencies',

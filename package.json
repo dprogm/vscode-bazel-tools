@@ -2,7 +2,7 @@
     "name": "vscode-bazel-tools",
     "displayName": "Bazel Tools",
     "description": "Bazel integration for Visual Studio Code",
-    "version": "0.0.9",
+    "version": "0.0.10-alpha2",
     "publisher": "dprogm",
     "repository": {
         "type": "git",
@@ -72,6 +72,11 @@
             {
                 "command": "bazel.createCppProps",
                 "title": "Create C++ Project",
+                "category": "Bazel"
+            },
+            {
+                "command": "bazel.createJavaProject",
+                "title": "Create Java Project",
                 "category": "Bazel"
             },
             {
