@@ -2,7 +2,7 @@
     "name": "vscode-bazel-tools",
     "displayName": "Bazel Tools",
     "description": "Bazel integration for Visual Studio Code",
-    "version": "0.0.7",
+    "version": "0.0.9",
     "publisher": "dprogm",
     "repository": {
         "type": "git",
@@ -10,22 +10,49 @@
     },
     "license": "MIT",
     "engines": {
-        "vscode": "^1.20.0"
+        "vscode": "^1.26.0"
     },
     "categories": [
         "Other"
     ],
     "icon": "img/bzl_icon_128.png",
     "activationEvents": [
+        "onCommand:workbench.action.tasks.runTask",
         "onCommand:bazel.buildTarget",
         "onCommand:bazel.runTarget",
         "onCommand:bazel.clean",
         "onCommand:bazel.createCppProps",
-        "workspaceContains:WORKSPACE",
+        "workspaceContains:**/WORKSPACE",
         "workspaceContains:BUILD"
     ],
     "main": "./out/src/extension",
     "contributes": {
+        "taskDefinitions": [
+            {
+                "type": "bazel",
+                "required": [
+                    "command"
+                ],
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "The Bazel target"
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "bazel command, build, test, run..."
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "The Bazel target kind"
+                    },
+                    "args": {
+                        "type": "array",
+                        "description": "The Bazel args"
+                    }
+                }
+            }
+        ],
         "commands": [
             {
                 "command": "bazel.buildTarget",
@@ -45,6 +72,11 @@
             {
                 "command": "bazel.createCppProps",
                 "title": "Create C++ Project",
+                "category": "Bazel"
+            },
+            {
+                "command": "bazel.showDepGraph",
+                "title": "Show dependencies graph",
                 "category": "Bazel"
             }
         ],
@@ -78,30 +110,39 @@
                     "type": "string",
                     "default": "bazel",
                     "description": "Path to the bazel executable"
+                },
+                "bazel.autoDetect": {
+                    "type": "string",
+                    "default": "on",
+                    "description": "Enable or disable the task detection"
                 }
             }
         }
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
+        "precompile": "json2ts -i res/c_cpp_properties.schema.json -o src/c_cpp_properties.d.ts",
         "compile": "tsc -p ./",
+        "prewatch": "npm run precompile",
         "watch": "tsc -watch -p ./",
         "genDoc": "typedoc --mode file --includeDeclarations --excludeExternals --readme README.md --out documentation/ src/",
         "postinstall": "node ./node_modules/vscode/bin/install",
         "test": "npm run compile && node ./node_modules/vscode/bin/test"
     },
     "devDependencies": {
+        "typescript": "^3.0.3",
+        "vscode": "^1.1.21",
+        "eslint": "^4.11.0",
+        "json-schema-to-typescript": "^5.5.0",
         "@types/fs-extra": "^5.0.1",
         "@types/mocha": "^2.2.42",
         "@types/node": "^7.0.43",
-        "eslint": "^4.11.0",
-        "typedoc": "^0.12.0",
-        "typescript": "^3.0.3",
-        "vscode": "^1.1.6"
+        "typedoc": "^0.12.0"
     },
     "dependencies": {
         "child-process-async": "^1.0.1",
         "fs-extra": "^5.0.0",
-        "node-exec-promise": "^1.0.2"
+        "node-exec-promise": "^1.0.2",
+        "viz.js": "^2.0.0"
     }
 }

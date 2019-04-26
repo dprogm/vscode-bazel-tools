@@ -1,23 +1,23 @@
 import {
     workspace as Workspace,
     window as Window,
-    commands as Commands,
     QuickPickOptions,
-    Uri,
     QuickPickItem,
     ExtensionContext,
     WorkspaceConfiguration,
-    Terminal,
     WorkspaceFoldersChangeEvent,
     WorkspaceFolder,
-    ViewColumn
+    ViewColumn,
+    RelativePattern,
+    Task
 } from 'vscode';
 import { bazel } from './bazel';
 import { cppproject } from './cppproject';
 import * as path from 'path';
 import * as fs from 'fs-extra';
 import { utils } from './utils';
-
+const Viz = require('viz.js');
+const { Module, render } = require('viz.js/full.render.js');
 
 export module commands {
     interface BazelQueryQuickPickItem extends QuickPickItem {
@@ -31,15 +31,14 @@ export module commands {
     /**
      * Bazel workspace information.
      */
-    class BazelWorkspace implements utils.BazelWorkspaceProperties{
+    class BazelWorkspace implements utils.BazelWorkspaceProperties {
         // VSCode workspace folder reference.
         public readonly workspaceFolder: WorkspaceFolder;
         // Path to the bazel WORKSPACE file.
         public readonly bazelWorkspacePath: string;
         // Path to the installed aspect file to generate descriptor files.
         public readonly aspectPath: string;
-        // Associated terminal to the workspace.
-        private terminal: Terminal | null = null;
+        public tasks?: Task[];
 
         /**
          * Constructor.
@@ -49,37 +48,6 @@ export module commands {
             this.workspaceFolder = properties.workspaceFolder;
             this.bazelWorkspacePath = properties.bazelWorkspacePath,
             this.aspectPath = properties.aspectPath;
-        }
-
-        /**
-         * Determine if a terminal is already associated with this workspace.
-         * @returns true if this workspace has already a terminal, false otherwise.
-         */
-        public hasTerminal(): boolean {
-            return this.terminal !== null;
-        }
-
-        /**
-         * This function must be call only on a terminal deletion.
-         */
-        public resetTerminal() {
-            return this.terminal = null;
-        }
-
-        /**
-         * Create or get the associated terminal of the current bazel workspace.
-         * @returns the associated terminal.
-         */
-        public getTerminal(): Terminal {
-            if (this.terminal === null) {
-                this.terminal = Window.createTerminal({
-                    name: `bazel - ${this.workspaceFolder.name}`,
-                    cwd: this.workspaceFolder.uri.fsPath
-                });
-                // For disposal on deactivation
-                extensionContext.subscriptions.push(this.terminal);
-            }
-            return this.terminal;
         }
     }
 
@@ -116,6 +84,7 @@ export module commands {
     /** Collection of all the initialize bazel workspace. */
     let bazelWorkspaces: BazelWorkspace[] = [];
     let extensionContext: ExtensionContext;
+    let bazelProvideTask: boolean;
 
     /**
      * Try to initialize the extension.
@@ -155,11 +124,13 @@ export module commands {
                 loadConfiguration(Workspace.getConfiguration('bazel'));
             }
         });
-        Window.onDidCloseTerminal(terminal => {
-            for (const bzlWs of bazelWorkspaces) {
-                if (bzlWs.hasTerminal() && bzlWs.getTerminal().processId === terminal.processId) {
-                    bzlWs.resetTerminal();
-                    break;
+        Workspace.onDidSaveTextDocument(textDocument => {
+            if ('bazel' === textDocument.languageId) {
+                let bzlWsModify = bazelWorkspaces.find(bzlWs => {
+                    return textDocument.fileName.startsWith(bzlWs.bazelWorkspacePath);
+                });
+                if (bzlWsModify !== undefined) {
+                    bzlWsModify.tasks = undefined;
                 }
             }
         });
@@ -179,19 +150,25 @@ export module commands {
      * @see {@link tryInitFromBuildFile}
      */
     async function tryInitWorkspace(workspaceFolder: WorkspaceFolder): Promise<boolean> {
+        const wsRelativePattern = new RelativePattern(workspaceFolder, `**/${BAZEL_WORKSPACE_FILE}`);
+        const wsExcludeBzlDir = new RelativePattern(workspaceFolder, '**/bazel-*');
+
         let initialized = false;
 
-        let workspacePath = path.join(workspaceFolder.uri.fsPath, BAZEL_WORKSPACE_FILE);
-        if (fs.existsSync(workspacePath)) {
-            // The workspace contains a WORKSPACE file init bazel
-            await setupWorkspace(workspaceFolder.uri.fsPath, extensionContext.extensionPath);
-            bazelWorkspaces.push(
-                new BazelWorkspace({
-                    workspaceFolder: workspaceFolder,
-                    bazelWorkspacePath: workspaceFolder.uri.fsPath,
-                    aspectPath: path.join(BAZEL_EXT_DEST_BASE_PATH, BAZEL_ASPECT_FILE)
-                })
-            );
+        let workspacesPath = await Workspace.findFiles(wsRelativePattern, wsExcludeBzlDir);
+        if (workspacesPath.length > 0) {
+            for (const workspacePath of workspacesPath) {
+                const bzlWsDirPath = path.dirname(workspacePath.fsPath);
+                // The workspace contains a WORKSPACE file init bazel
+                await setupWorkspace(bzlWsDirPath, extensionContext.extensionPath);
+                bazelWorkspaces.push(
+                    new BazelWorkspace({
+                        workspaceFolder: workspaceFolder,
+                        bazelWorkspacePath: bzlWsDirPath,
+                        aspectPath: path.join(BAZEL_EXT_DEST_BASE_PATH, BAZEL_ASPECT_FILE)
+                    })
+                );
+            }
             initialized = true;
         } else {
             // The workspace does not contains a WORKSPACE file try 
@@ -304,7 +281,8 @@ export module commands {
      * @param bazelConfig New configuration to load.
      */
     function loadConfiguration(bazelConfig: WorkspaceConfiguration): void {
-        rawLabelDisplay = bazelConfig.get<boolean>('rawLabelDisplay') || false;
+        rawLabelDisplay = <boolean>bazelConfig.get<boolean>('rawLabelDisplay');
+        bazelProvideTask = (bazelConfig.get<string>('autoDetect') === 'on');
     }
 
     /**
@@ -341,15 +319,15 @@ export module commands {
                     //    the symlinked bazel workspace 'bazel-<root>'
                     //    where root is the current working directory.
                     await cppproject.createCppProperties(
-                        bzlWs.workspaceFolder.uri.fsPath,
-                        path.join(bzlWs.bazelWorkspacePath, `bazel-${path.basename(bzlWs.bazelWorkspacePath)}`),
+                        bzlWs,
+                        target.query_item.label,
                         descriptors
-                    ); // TODO directly pass the bzlWs
+                    );
 
                     // 3) Cleanup all temporary descriptor files
-                    for (const descriptor of descriptors) {
-                        fs.unlink(descriptor);
-                    }
+                    //for (const descriptor of descriptors) {
+                       // fs.unlink(descriptor);
+                    //}
                 }
             }
         } catch (err) {
@@ -358,7 +336,7 @@ export module commands {
     }
 
     /**
-     * 
+     * @deprecated
      * @param ctx 
      */
     export async function bzlBuildTarget(ctx: ExtensionContext) {
@@ -370,16 +348,14 @@ export module commands {
                 placeHolder: 'bazel build'
             }).then(target => {
                 if (target !== undefined) {
-                    let terminal = bzlWs.getTerminal()
-                    bazel.build(terminal, target.query_item.label);
-                    terminal.show();
+                    bazel.build(bzlWs, target.query_item.label);
                 }
             });
         }
     }
 
     /**
-     * 
+     * @deprecated
      * @param ctx 
      */
     export async function bzlRunTarget(ctx: ExtensionContext) {
@@ -391,25 +367,46 @@ export module commands {
                 placeHolder: 'Run bazel binary target (*_binary)'
             }).then(target => {
                 if (target !== undefined) {
-                    let terminal = bzlWs.getTerminal();
-                    bazel.run(terminal, target.query_item.label);
-                    terminal.show();
+                    bazel.run(bzlWs, target.query_item.label);
                 }
             });
         }
     }
 
     /**
-     * 
+     * @deprecated
      * @param ctx 
      */
     export async function bzlClean(ctx: ExtensionContext) {
         let bzlWs = await pickWorkspace();
         if (bzlWs !== undefined) {
-            let terminal = bzlWs.getTerminal()
-            bazel.clean(terminal);
-            terminal.show();
+            bazel.clean(bzlWs);
         }
+    }
+
+    export async function provideTasks() {
+        if (!bazelProvideTask) {
+            return [];
+        }
+
+        let tasksResolverPromiseByWs = bazel.provideTasks(bazelWorkspaces.filter(bzlWs => !bzlWs.tasks));
+        for (const tasksResolverPromise of tasksResolverPromiseByWs) {
+            try {
+                let tasksResolver = await tasksResolverPromise;
+                (<BazelWorkspace>tasksResolver.workspaceFolder).tasks = tasksResolver.tasks;
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        let allTasks: Task[] = [];
+        for (const ws of bazelWorkspaces) {
+            if (ws.tasks !== undefined) {
+                allTasks.push(...ws.tasks);
+            }
+        }
+
+        return allTasks;
     }
 
     /**
@@ -417,8 +414,30 @@ export module commands {
      * @param ctx 
      */
     export async function bzlShowDepGraph(ctx: ExtensionContext) {
-        let uri = Uri.parse('bazel_dep_graph://');
-        Commands.executeCommand('vscode.previewHtml', uri, ViewColumn.Two, 'Graph View');
+        const bzlWs = await pickWorkspace();
+        if (bzlWs !== undefined) {
+            return quickPickQuery(bzlWs, '...', {
+                matchOnDescription: true,
+                matchOnDetail: true,
+                placeHolder: 'Trace dependencies graph'
+            }).then(async target => {
+                if (target !== undefined) {
+                    const graph = await bazel.depGraph(bzlWs, target.query_item.label, true);
+                    let viz = new Viz({ Module, render });
+                    let svgGraph = await viz.renderString(graph);
+                    const panel = Window.createWebviewPanel(
+                        'bazel',                                 // view type
+                        `Graph View ${target.query_item.label}`, // tile
+                        ViewColumn.One,                          // view
+                        { enableScripts: true }                  // options
+                    );
+                    panel.webview.html = svgGraph;
+                }
+            });
+        }
+        
+        //let uri = Uri.parse('bazel_dep_graph://');
+        //Commands.executeCommand('vscode.previewHtml', uri, ViewColumn.Two, 'Graph View');
     }
 
     /**
@@ -456,7 +475,7 @@ export module commands {
      * @returns
      */
     function quickPickQuery(bzlWs: BazelWorkspace, query: string = '...', options?: QuickPickOptions): Thenable<BazelQueryQuickPickItem | undefined> {
-        let quickPickQuery = bazel.queryBzl(bzlWs.workspaceFolder.uri.fsPath, query).then(
+        let quickPickQuery = bazel.queryBzl(bzlWs, query).then(
             queryItems => {
                 if (rawLabelDisplay) {
                     return queryItems.map(rawQuickPickItem);
