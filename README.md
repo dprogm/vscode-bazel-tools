@@ -1,18 +1,23 @@
-# Bazel Tools (Experimental)
+# Bazel Tools (Deprecated)
 
 Bazel integration for Visual Studio Code. If you also want to have syntax highlighting for `BUILD` and `WORKSPACE` files take a look at [bazel-code](https://github.com/devoncarew/bazel-code). The current version is meant to be a **preview** and might have heavy bugs.
+
+**Update:** The bazel team now officially started developing [vscode-bazel](https://github.com/bazelbuild/vscode-bazel) which provides a more feature rich integration for bazel. This extension is therefore deprecated and will not be published anymore.
 
 ## Features
 
 * Running bazel commands from within Visual Studio Code. Detect which targets are available in a `WORKSPACE` and choose one.
-* Generation of files for code navigation and auto-completion, e.g. `c_cpp_properties.json`
+* Generation of project files for code navigation and auto-completion used by other third party language extensions, e.g. `c_cpp_properties.json` for C/C++ or `.classpath` for Java
+* Generate and show the dependency graph of a target
 
 ### Commands
 
 * **Bazel: Create C++ Project**: Creates a `c_cpp_properties.json` file that contains all transitive include paths starting from a root C++ target. Takes also the used toolchain into account and uses their system include directories.
+* **Bazel: Create Java Project**: Classpath generation.
 * **Bazel: Build**: Builds a target chosen from the shown label list.
 * **Bazel: Run**: Runs a *_binary target chosen from the shown label list.
 * **Bazel: Clean**: Cleans up the output directories.
+* **Bazel: Show dependencies graph**
 
 For each command listed above there is also a button available in the status bar.
 
@@ -51,3 +56,4 @@ Then you can run it in the developer mode.
 
 **Thank you goes out to the following contributors for pushing the project forward:**
 - [zaucy](https://github.com/zaucy)
+- [quentingodeau](https://github.com/quentingodeau)

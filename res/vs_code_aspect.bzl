@@ -34,15 +34,13 @@ def _get_project_info(target, ctx):
                 include_dirs          = target.cc.include_directories,
                 system_include_dirs   = target.cc.system_include_directories,
                 quote_include_dirs    = target.cc.quote_include_directories,
-                compile_flags         = target.cc.compile_flags + 
-                                        ctx.fragments.cpp.compiler_options([]) +
-                                        ctx.fragments.cpp.cxx_options([]),
+                compile_flags         = target.cc.compile_flags,
                 defines               = target.cc.defines,
-                
-                base_compiler_option       = cpp_toolchain.compiler_options(),
-                c_option                   = cpp_toolchain.c_options(),
-                cpp_option                 = cpp_toolchain.cxx_options(),
-                unfiltered_compiler_option = cpp_toolchain.unfiltered_compiler_options([]),
+
+                #base_compiler_option       = cpp_toolchain.compiler_options(),
+                #c_option                   = cpp_toolchain.c_options(),
+                #cpp_option                 = cpp_toolchain.cxx_options(),
+                #unfiltered_compiler_option = cpp_toolchain.unfiltered_compiler_options([]),
                 cpp_executable             = str(cpp_toolchain.compiler_executable),
                 built_in_include_directory = [str(d) for d in cpp_toolchain.built_in_include_directories],
             )
@@ -51,7 +49,7 @@ def _get_project_info(target, ctx):
                 include_dirs          = target.cc.include_directories,
                 system_include_dirs   = target.cc.system_include_directories,
                 quote_include_dirs    = target.cc.quote_include_directories,
-                compile_flags         = target.cc.compile_flags + 
+                compile_flags         = target.cc.compile_flags +
                                         ctx.fragments.cpp.compiler_options([]) +
                                         ctx.fragments.cpp.cxx_options([]),
                 defines               = target.cc.defines,
